@@ -6,18 +6,20 @@
 
 ## 安装
 
-从 relay 管理员取得 **home.json 和 frps.crt**。该配置包含家庭端专属 UUID 和 frp token，不应交给 App；App 使用单独配对文件。
+从 Relay 管理员取得配对工具生成的整个 **home/** 目录（含 home.json、私有 secrets.json、grants.json 和受控 TLS 资产），不要接收 relay/ 或 App 配对文件。
 
-1. 将 home.json 存为 `deployment.json`，将 frps.crt 放入可信的本地路径。
-2. 修改 `frpCAPath` 为本机证书绝对路径；保留 `frpServerName` 对应证书身份。
-3. 在 `services` 中填写实际 NAS 地址和端口，确认服务 ID、remotePort 与 relay 一致。
-4. 检查该主机能够访问媒体服务，再安装。家庭路由器无需开放入站端口。
+将目录保存为 `/var/lib/openplayx-home/`，目录权限 0700、文件 0600。先通过管理页编辑家庭目标 IP/端口；服务 ID 和 relayPort 必须在导入授权内，不能在 Home 页面单方面扩大。
 
 ```bash
-chmod 600 deployment.json
-sudo python3 scripts/manage.py install --config deployment.json
+# 先启动 Web 管理页（可在组件尚未安装时编辑和保存）。
+sudo python3 manager/install.py
+# 在 127.0.0.1:9080 登录，填写实际 NAS 目标并保存。
+# 然后安装固定版本组件，读取同一 home.json 和机密引用。
+sudo python3 scripts/manage.py install --config /var/lib/openplayx-home/home.json
 sudo python3 scripts/manage.py status
 ```
+
+原有 home.json 若包含明文旧部署格式，先用 `manager/server.py --import-legacy` 迁移到另一个私有目录；不要直接把旧格式当作新权威文件覆盖。详见 [迁移与配置](docs/configuration.md)。
 
 服务先启动 sing-box，确认其回环 SOCKS5 握手成功后才启动 frpc；frpc 固定使用 TCP + `transport.proxyURL`，验证 frps TLS 证书和身份，并持续重试连接。代理不可用时不会改成直连。代理就绪只代表本地入口正常，上游链路和服务可达性仍需验收。
 
@@ -28,8 +30,8 @@ sudo python3 scripts/manage.py status
 ```bash
 sudo python3 scripts/manage.py stop
 sudo python3 scripts/manage.py start
-sudo python3 scripts/manage.py update --config deployment.json
-sudo python3 scripts/manage.py rollback
+sudo python3 scripts/manage.py update --config /var/lib/openplayx-home/home.json
+sudo python3 scripts/manage.py rollback --config /var/lib/openplayx-home/home.json
 sudo python3 scripts/manage.py uninstall
 ```
 
@@ -38,7 +40,7 @@ sudo python3 scripts/manage.py uninstall
 不安装系统服务也可生成配置：
 
 ```bash
-python3 scripts/manage.py render --config deployment.json --output generated
+python3 scripts/manage.py render --config /var/lib/openplayx-home/home.json --output generated
 python3 scripts/manage.py check --output generated --bin /path/to/upstream/bin
 python3 -m unittest discover -s tests
 ```
@@ -48,3 +50,7 @@ python3 -m unittest discover -s tests
 ## 上游与许可证
 
 部署工程使用独立上游二进制。sing-box：GPL-3.0-or-later，另有命名限制；frp：Apache-2.0。分发时附带对应许可证和适用源码。固定版本来源：[sing-box v1.12.12](https://github.com/SagerNet/sing-box/tree/v1.12.12)、[frp v0.65.0](https://github.com/fatedier/frp/tree/v0.65.0)。
+
+## Web 配置管理
+
+已提供类型化 Web 表单、管理员登录、草稿校验与测试、保存/应用分离、状态、脱敏导出和备份/损坏恢复。权威配置为 `home.json`，实际 UUID/token 仅存于私有 `secrets.json`。旧 `deployment.json` 仅作为显式迁移输入，不再是 Web 管理的权威源。启动、迁移、权限与验证说明见 [docs/configuration.md](docs/configuration.md)。
