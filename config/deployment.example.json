@@ -1,0 +1,10 @@
+{
+  "proxy": {
+    "host": "relay.example.com", "port": 443, "serverName": "relay.example.com",
+    "homeUUID": "22222222-2222-4222-8222-222222222222"
+  },
+  "frpToken": "REPLACE_WITH_AT_LEAST_32_RANDOM_CHARACTERS",
+  "controlPort": 7000, "socksPort": 1080,
+  "frpServerName": "openplayx-frps", "frpCAPath": "/etc/openplayx/tls/frps.crt",
+  "services": [{"id": "jellyfin", "remotePort": 18096, "localHost": "192.168.50.10", "localPort": 8096}]
+}

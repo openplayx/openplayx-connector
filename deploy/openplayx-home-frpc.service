@@ -1,0 +1,27 @@
+[Unit]
+Description=OpenPlayX home frpc
+After=network-online.target
+Wants=network-online.target
+Requires=openplayx-home-sing-box.service
+After=openplayx-home-sing-box.service
+
+[Service]
+Type=simple
+DynamicUser=yes
+ExecStartPre=/usr/bin/python3 /opt/openplayx-home/manager.py wait-socks --output /opt/openplayx-home/current/config
+ExecStart=/opt/openplayx-home/current/bin/frpc -c /opt/openplayx-home/current/config/frpc.toml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/opt/openplayx-home
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+# Config directories must be readable by the service via a dedicated group.
+SupplementaryGroups=openplayx-home
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
