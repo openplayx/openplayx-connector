@@ -13,7 +13,7 @@
 ```bash
 # 先启动 Web 管理页（可在组件尚未安装时编辑和保存）。
 sudo python3 manager/install.py
-# 在 127.0.0.1:9080 登录，填写实际 NAS 目标并保存。
+# 在 http://Home局域网IP:9080 登录，填写实际 NAS 目标并保存。
 # 然后安装固定版本组件，读取同一 home.json 和机密引用。
 sudo python3 scripts/manage.py install --config /var/lib/openplayx-home/home.json
 sudo python3 scripts/manage.py status
@@ -54,3 +54,17 @@ python3 -m unittest discover -s tests
 ## Web 配置管理
 
 已提供类型化 Web 表单、管理员登录、草稿校验与测试、保存/应用分离、状态、脱敏导出和备份/损坏恢复。权威配置为 `home.json`，实际 UUID/token 仅存于私有 `secrets.json`。旧 `deployment.json` 仅作为显式迁移输入，不再是 Web 管理的权威源。启动、迁移、权限与验证说明见 [docs/configuration.md](docs/configuration.md)。
+
+## 家庭局域网直接访问
+
+默认浏览器访问 `http://<Home机器的局域网IP>:9080`，例如 `http://192.168.1.10:9080`，无需 SSH 转发。管理页监听 `0.0.0.0:9080`，保留管理员/15 分钟初始化凭据认证与 CSRF 校验，HTTP 层只接受回环或家庭私有网段来源、到达本机局域网接口的请求。本机 IP 自动识别，额外 DNS 名称仍通过 allowedHosts 配置；不使用任意 Host 白名单。
+
+已有 `home.json` 的显式监听不会被升级静默覆盖。更新代码后，在 Home 仓库执行：
+
+```bash
+sudo python3 manager/install.py --enable-lan
+```
+
+该命令把已有回环配置保存为新的局域网访问修订、更新管理服务代码并重启服务；媒体代理与家庭映射不改变。已有自定义配置目录时加 `--config-dir /实际目录`。主机防火墙需要允许家庭网段访问 TCP 9080，不配置路由器的公网端口映射。
+
+没有使用 systemd 的手动部署，可先执行 `python3 manager/server.py --config-dir /实际目录 --enable-lan`，然后重新启动同一个管理进程。配置损坏时仍使用回环恢复入口，不会把未知配置公开到局域网。
