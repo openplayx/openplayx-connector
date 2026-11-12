@@ -15,19 +15,19 @@ scripts/build.sh                       # dist/openplayx-home-linux-{amd64,arm64}
 
 ## 安装
 
-从 Relay 管理员取得配对工具生成的整个 **home/** 目录（含 home.json、私有 secrets.json、grants.json 和受控 TLS 资产），不要接收 relay/ 或 App 配对文件。
+从 Relay 管理员取得 `openplayx-relay pair` 生成的整个 **home/** 目录（含 home.json、私有 secrets.json 和受控 TLS 资产），不要接收 relay/ 或 app.json。
 
 将目录内容放到 `/var/lib/openplayx-home/`（目录 0700、文件 0600），然后：
 
 ```bash
 sudo ./openplayx-home install
 # 在 http://Home局域网IP:9080 登录（首次使用 /var/lib/openplayx-home/bootstrap-token），
-# 填写实际 NAS 目标并保存，再点击“应用”；或保存后在本机执行：
+# 在 frpc.proxies 中填写实际 NAS 目标并保存，再点击“应用”；或保存后在本机执行：
 sudo openplayx-home apply
 sudo openplayx-home status
 ```
 
-`install` 创建系统账户 `openplayx-home`，把二进制复制到 `/opt/openplayx-home/releases/<时间戳>/` 并切换 `current`，链接 `/usr/local/bin/openplayx-home`，写入 `openplayx-home.service`（参考 `deploy/openplayx-home.service`）。服务以该账户运行，管理页在组件尚未应用时即可编辑和保存。服务 ID 和 relayPort 必须在导入授权内，不能在 Home 页面单方面扩大。
+`install` 创建系统账户 `openplayx-home`，把二进制复制到 `/opt/openplayx-home/releases/<时间戳>/` 并切换 `current`，链接 `/usr/local/bin/openplayx-home`，写入 `openplayx-home.service`（参考 `deploy/openplayx-home.service`）。服务以该账户运行，管理页在组件尚未应用时即可编辑和保存。`frpc.proxies` 即服务注册：`remotePort` 必须在 Relay 的 `frps.allowPorts` 内，否则 frps 拒绝该 proxy。
 
 应用时先启动 sing-box，确认其回环 SOCKS5 握手成功后才启动 frpc；frpc 固定使用 TCP + `transport.proxyURL`，验证 frps TLS 证书和身份，并持续重试连接。代理不可用时不会改成直连。组件为 `active` 只代表本地入口正常，上游链路和服务可达性仍需验收。
 
@@ -53,19 +53,19 @@ sudo openplayx-home uninstall        # 删除 systemd 服务，保留配置与 r
 ./openplayx-home render --config-dir /path/to/state --output generated   # 输出含凭据
 ```
 
-常用映射示例见 [examples/services.json](examples/services.json)（`home.json` 的 `services` 字段），故障排查见 [docs/operations.md](docs/operations.md)。只转发明确配置的服务，不开放整个家庭网段或 NAS 管理端口。VPS frp token 不是媒体服务密码，媒体服务自身的认证须保留。
+常用映射示例见 [examples/proxies.json](examples/proxies.json)（`home.json` 的 `frpc.proxies` 字段），配置结构见 [docs/configuration.md](docs/configuration.md)，故障排查见 [docs/operations.md](docs/operations.md)。只转发明确配置的服务，不开放整个家庭网段或 NAS 管理端口。VPS frp token 不是媒体服务密码，媒体服务自身的认证须保留。
 
-### 从 Python 版本迁移
+### 配置格式
 
-在已有部署上执行 `sudo ./openplayx-home install` 即可：它停用旧的 `openplayx-home-{manager,sing-box,frpc}` 单元，复用原 `/var/lib/openplayx-home` 中的 home.json、secrets.json、grants.json、admin.json、TLS 资产和 last-good.json（管理员密码保持有效），新服务启动后按最近一次成功应用的修订运行组件。新服务确认 active 后才删除旧单元文件；启动失败时重新启用旧单元。
-
-只有旧的扁平 deployment.json 时，用 `openplayx-home import-legacy --config-dir 新的私有目录 --file deployment.json` 导入，不要直接把旧格式当作新权威文件覆盖。详见 [迁移与配置](docs/configuration.md)。
+当前为 `schemaVersion: 2`：网络层用 sing-box 字段（`singBox.inbound` / `singBox.outbound`），注册层用 frp 字段（`frpc`）。旧格式（`homeId`、`services`、`grants.json`）不再读取，也不提供自动导入。详见 [docs/configuration.md](docs/configuration.md)。
 
 ## 上游与许可证
 
 sing-box 以 GPL-3.0-or-later 授权（另有命名限制），本程序静态链接 sing-box，因此本仓库源码及分发的二进制整体按 **GPL-3.0-or-later** 提供，许可证全文见 [COPYING](COPYING)。frp 为 Apache-2.0。分发二进制时须同时提供对应源码。上游源码：[sing-box v1.12.12](https://github.com/SagerNet/sing-box/tree/v1.12.12)、[frp v0.65.0](https://github.com/fatedier/frp/tree/v0.65.0)。
 
 ## Web 配置管理
+
+页面分为“传输链路”和“可用服务”两部分，默认展示已保存配置，展开对应区域可修改。Home 管理实际服务映射；Relay 管理允许注册的端口范围与身份访问权限。证书、日志和管理入口收在链路维护选项中。修改后在页面顶部保存，再应用已保存配置。
 
 类型化 Web 表单、管理员登录、草稿校验与测试、保存/应用分离、状态、脱敏导出和备份/损坏恢复。权威配置为 `home.json`，实际 UUID/token 仅存于私有 `secrets.json`。启动、迁移、权限与验证说明见 [docs/configuration.md](docs/configuration.md)。
 

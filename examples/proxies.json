@@ -1,0 +1,7 @@
+{
+  "proxies": [
+    {"name": "jellyfin", "type": "tcp", "localIP": "192.168.50.10", "localPort": 8096, "remotePort": 18096},
+    {"name": "emby", "type": "tcp", "localIP": "192.168.50.11", "localPort": 8096, "remotePort": 18097},
+    {"name": "smb", "type": "tcp", "localIP": "192.168.50.10", "localPort": 445, "remotePort": 18445}
+  ]
+}
