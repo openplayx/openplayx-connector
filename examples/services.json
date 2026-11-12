@@ -1,7 +1,7 @@
 {
   "services": [
-    {"id": "jellyfin", "remotePort": 18096, "localHost": "192.168.50.10", "localPort": 8096},
-    {"id": "emby", "remotePort": 28096, "localHost": "192.168.50.11", "localPort": 8096},
-    {"id": "smb", "remotePort": 10445, "localHost": "192.168.50.10", "localPort": 445}
+    {"serviceId": "jellyfin", "relayPort": 18096, "targetHost": "192.168.50.10", "targetPort": 8096},
+    {"serviceId": "emby", "relayPort": 28096, "targetHost": "192.168.50.11", "targetPort": 8096},
+    {"serviceId": "smb", "relayPort": 10445, "targetHost": "192.168.50.10", "targetPort": 445}
   ]
 }
