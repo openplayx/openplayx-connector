@@ -1,84 +1,172 @@
 # OpenPlayX Home
 
-家庭常开设备上的服务：一个 Go 程序，内含 Web 配置管理、**sing-box 1.12.12**（本机 SOCKS5 → VLESS + TLS）和 **frpc 0.65.0**。frpc 只通过本机 SOCKS5 连接 [openplayx-relay](https://github.com/openplayx/openplayx-relay)，无论家庭所在地区，均不提供绕过 sing-box 的直连模式。
+English | [简体中文](README.zh-CN.md)
 
-sing-box 与 frp 以 Go 库的形式编译进同一个二进制，版本固定在 `src/go.mod` / `src/go.sum`。运行时不需要 Python，也不再下载上游二进制。自动安装支持 Linux amd64/arm64 + systemd；macOS arm64 已完成进程内真实链路验证。未验证厂商 NAS、Windows 服务、Docker 或其他架构，不假定 NAS 的 GUI 可以直接执行 systemd 安装器；没有 systemd 的设备可以前台运行 `openplayx-home serve`。
+[![License: GPL v3+](https://img.shields.io/badge/license-GPLv3%2B-blue.svg)](COPYING)
 
-## 构建
+The home side of [OpenPlayX](https://github.com/openplayx/openplayx) remote
+access, running on an always-on device at home: one Go program with a web
+configuration manager, **sing-box 1.12.12** (local SOCKS5 → VLESS + TLS) and
+**frpc 0.65.0**. It registers the home services you configure explicitly
+(Jellyfin, Emby, SMB, …) with [openplayx-relay](https://github.com/openplayx/openplayx-relay)
+on a VPS, so the app can reach them from outside.
 
-需要 Go 1.24+。Go 源码、模块文件和内嵌的 Web 页面（`src/web/`）都在 `src/` 下；除 `src/role.go` 外，Relay 与 Home 两个仓库的 `src/` 内容相同。
+- **One binary**: sing-box and frp are compiled in as Go libraries, pinned in
+  `src/go.mod` / `src/go.sum`. No Python at runtime, no upstream binaries
+  downloaded.
+- **No direct mode**: frpc reaches the Relay only through the local SOCKS5
+  proxy, wherever the home is. There is no way around sing-box, and the program
+  never falls back to a direct connection when the proxy is down.
+- **Only explicitly configured services** are forwarded; never a whole home
+  network or a NAS admin port.
+- **Web configuration**, opened directly by IP inside the home network, with
+  admin login, draft validation, separate save and apply, backups and recovery.
+
+Automatic installation supports Linux amd64/arm64 with systemd; the real
+in-process link is also verified on macOS arm64. Vendor NAS systems, Windows
+services, Docker and other architectures are not verified, and a NAS GUI is not
+assumed to run the systemd installer. Devices without systemd can run
+`openplayx-home serve` in the foreground.
+
+## Build
+
+Requires Go 1.24+. The Go sources, module files and the embedded web page
+(`src/web/`) are under `src/`; apart from `src/role.go`, `src/` is identical in
+the Relay and Home repositories.
 
 ```bash
 scripts/build.sh                       # dist/openplayx-home-linux-{amd64,arm64} + SHA256SUMS
-(cd src && go test ./...)             # 单元测试 + 进程内端到端测试
+(cd src && go test ./...)             # unit tests + in-process end-to-end tests
 ```
 
-## 安装
+## Quick start: install
 
-从 Relay 管理员取得 `openplayx-relay pair` 生成的整个 **home/** 目录（含 home.json、私有 secrets.json 和受控 TLS 资产），不要接收 relay/ 或 app.json。
+Get the whole **home/** directory produced by `openplayx-relay pair` from the
+Relay administrator (home.json, the private secrets.json and the managed TLS
+assets). Do not accept relay/ or app.json.
 
-将目录内容放到 `/var/lib/openplayx-home/`（目录 0700、文件 0600），然后：
+Put its contents into `/var/lib/openplayx-home/` (directory 0700, files 0600),
+then:
 
 ```bash
 sudo ./openplayx-home install
-# 在 http://Home局域网IP:9080 登录（首次使用 /var/lib/openplayx-home/bootstrap-token），
-# 在 frpc.proxies 中填写实际 NAS 目标并保存，再点击“应用”；或保存后在本机执行：
+# Log in at http://<home LAN IP>:9080 (first time: /var/lib/openplayx-home/bootstrap-token),
+# enter the real NAS targets in frpc.proxies, save and click Apply; or after saving, run locally:
 sudo openplayx-home apply
 sudo openplayx-home status
 ```
 
-`install` 创建系统账户 `openplayx-home`，把二进制复制到 `/opt/openplayx-home/releases/<时间戳>/` 并切换 `current`，链接 `/usr/local/bin/openplayx-home`，写入 `openplayx-home.service`（参考 `deploy/openplayx-home.service`）。服务以该账户运行，管理页在组件尚未应用时即可编辑和保存。`frpc.proxies` 即服务注册：`remotePort` 必须在 Relay 的 `frps.allowPorts` 内，否则 frps 拒绝该 proxy。
+`install` creates the system account `openplayx-home`, copies the binary to
+`/opt/openplayx-home/releases/<timestamp>/` and switches `current`, links
+`/usr/local/bin/openplayx-home`, and writes `openplayx-home.service` (see
+`deploy/openplayx-home.service`). The service runs as that account; the admin
+page can edit and save before any components are applied. `frpc.proxies` is
+the service registration: each `remotePort` must be inside the Relay's
+`frps.allowPorts`, otherwise frps rejects that proxy. Common mappings are in
+[examples/proxies.json](examples/proxies.json) (the `frpc.proxies` field of
+`home.json`).
 
-应用时先启动 sing-box，确认其回环 SOCKS5 握手成功后才启动 frpc；frpc 固定使用 TCP + `transport.proxyURL`，验证 frps TLS 证书和身份，并持续重试连接。代理不可用时不会改成直连。组件为 `active` 只代表本地入口正常，上游链路和服务可达性仍需验收。
+On apply, sing-box starts first; frpc starts only after a successful SOCKS5
+handshake on loopback. frpc always uses TCP + `transport.proxyURL`, verifies the
+frps TLS certificate and identity, and keeps retrying. A component showing
+`active` only means the local entry point works; the upstream link and the
+reachability of services still need checking.
 
-重复安装/更新使用既有配置，不生成或覆盖凭据；不要在命令行参数或日志里打印 UUID、token。
+Reinstalling or updating keeps the existing configuration and never creates or
+overwrites credentials. Do not print UUIDs or tokens in command-line arguments
+or logs. The VPS frp token is not a media service password: keep the media
+services' own authentication.
 
-## 维护
+## Configuration
 
-```bash
-sudo systemctl stop|start|restart openplayx-home
-sudo openplayx-home status
-sudo openplayx-home check            # 用内置 sing-box/frpc 校验已保存配置
-sudo ./openplayx-home update         # 安装新构建的二进制；启动失败自动恢复原版本
-sudo openplayx-home rollback         # 切回上一个已安装二进制
-sudo openplayx-home uninstall        # 删除 systemd 服务，保留配置与 releases
-```
+The current format is `schemaVersion: 2`: sing-box fields for the network layer
+(`singBox.inbound` / `singBox.outbound`) and frp fields for the registration
+layer (`frpc`). The old format (`homeId`, `services`, `grants.json`) is no
+longer read and not imported automatically. The authoritative configuration is
+`home.json`; the real UUIDs and tokens are only in the private `secrets.json`.
+Structure, startup, permissions and verification are described in
+[docs/configuration.md](docs/configuration.md) (Chinese).
 
-上游升级需要修改 `src/go.mod` 后重新构建并审核，程序不会自行查询或下载新版本。配置的回退在 Web 管理页使用“恢复上一份配置”再应用。
+## Web configuration
 
-不安装系统服务也可前台运行或生成配置：
+The page has two parts, **transport link** and **available services**. It shows
+the saved configuration; expand a section to edit it. The Home manages the
+actual service mappings; the Relay manages the registrable port range and
+identity permissions. Certificates, logs and admin access are under the link
+maintenance options. Save at the top of the page, then apply the saved
+configuration.
 
-```bash
-./openplayx-home serve  --config-dir /path/to/state
-./openplayx-home render --config-dir /path/to/state --output generated   # 输出含凭据
-```
+### Direct access from the home network
 
-常用映射示例见 [examples/proxies.json](examples/proxies.json)（`home.json` 的 `frpc.proxies` 字段），配置结构见 [docs/configuration.md](docs/configuration.md)，故障排查见 [docs/operations.md](docs/operations.md)。只转发明确配置的服务，不开放整个家庭网段或 NAS 管理端口。VPS frp token 不是媒体服务密码，媒体服务自身的认证须保留。
+By default, open `http://<home machine's LAN IP>:9080` in a browser, for example
+`http://192.168.1.10:9080`; no SSH forwarding needed. The admin page listens on
+`0.0.0.0:9080` and keeps admin / 15-minute bootstrap credential authentication
+and CSRF checks. At the HTTP layer it accepts only requests from loopback or
+private home networks that arrive on a local LAN interface. Local IPs are
+detected automatically; extra DNS names go into allowedHosts. There is no
+wildcard Host allowlist.
 
-### 配置格式
-
-当前为 `schemaVersion: 2`：网络层用 sing-box 字段（`singBox.inbound` / `singBox.outbound`），注册层用 frp 字段（`frpc`）。旧格式（`homeId`、`services`、`grants.json`）不再读取，也不提供自动导入。详见 [docs/configuration.md](docs/configuration.md)。
-
-## 上游与许可证
-
-sing-box 以 GPL-3.0-or-later 授权（另有命名限制），本程序静态链接 sing-box，因此本仓库源码及分发的二进制整体按 **GPL-3.0-or-later** 提供，许可证全文见 [COPYING](COPYING)。frp 为 Apache-2.0。分发二进制时须同时提供对应源码。上游源码：[sing-box v1.12.12](https://github.com/SagerNet/sing-box/tree/v1.12.12)、[frp v0.65.0](https://github.com/fatedier/frp/tree/v0.65.0)。
-
-## Web 配置管理
-
-页面分为“传输链路”和“可用服务”两部分，默认展示已保存配置，展开对应区域可修改。Home 管理实际服务映射；Relay 管理允许注册的端口范围与身份访问权限。证书、日志和管理入口收在链路维护选项中。修改后在页面顶部保存，再应用已保存配置。
-
-类型化 Web 表单、管理员登录、草稿校验与测试、保存/应用分离、状态、脱敏导出和备份/损坏恢复。权威配置为 `home.json`，实际 UUID/token 仅存于私有 `secrets.json`。启动、迁移、权限与验证说明见 [docs/configuration.md](docs/configuration.md)。
-
-## 家庭局域网直接访问
-
-默认浏览器访问 `http://<Home机器的局域网IP>:9080`，例如 `http://192.168.1.10:9080`，无需 SSH 转发。管理页监听 `0.0.0.0:9080`，保留管理员/15 分钟初始化凭据认证与 CSRF 校验，HTTP 层只接受回环或家庭私有网段来源、到达本机局域网接口的请求。本机 IP 自动识别，额外 DNS 名称仍通过 allowedHosts 配置；不使用任意 Host 白名单。
-
-已有 `home.json` 的显式回环监听不会被升级静默覆盖。需要局域网访问时执行：
+An explicit loopback listener in an existing `home.json` is not silently
+replaced by an upgrade. To enable LAN access:
 
 ```bash
 sudo ./openplayx-home install --enable-lan
 ```
 
-该命令把已有回环配置保存为新的局域网访问修订并重启服务（组件按已应用修订一并重启）；媒体代理与家庭映射不改变。已有自定义配置目录时加 `--config-dir /实际目录`。主机防火墙需要允许家庭网段访问 TCP 9080，不配置路由器的公网端口映射。
+This saves the existing loopback configuration as a new LAN-access revision and
+restarts the service (components restart with the applied revision); media
+proxying and home mappings do not change. Add `--config-dir /actual/dir` for a
+custom config directory. The host firewall must allow TCP 9080 from the home
+network; do not forward the port on the router.
 
-没有使用 systemd 的手动部署，可先执行 `openplayx-home enable-lan --config-dir /实际目录`，然后重新启动 `serve` 进程。配置损坏时仍使用回环恢复入口，不会把未知配置公开到局域网。
+For manual deployments without systemd, run
+`openplayx-home enable-lan --config-dir /actual/dir`, then restart the `serve`
+process. With a damaged configuration the program still uses the loopback
+recovery entry and never exposes an unknown configuration to the LAN.
+
+## Maintenance
+
+```bash
+sudo systemctl stop|start|restart openplayx-home
+sudo openplayx-home status
+sudo openplayx-home check            # validate the saved configuration with the built-in sing-box/frpc
+sudo ./openplayx-home update         # install a newly built binary; restores the old one if startup fails
+sudo openplayx-home rollback         # switch back to the previously installed binary
+sudo openplayx-home uninstall        # remove the systemd service, keep configuration and releases
+```
+
+Upgrading upstream means changing `src/go.mod`, rebuilding and reviewing; the
+program never looks for or downloads new versions itself. To roll back
+configuration, use **restore previous configuration** on the web page and apply.
+
+Run in the foreground or generate configuration without installing a service:
+
+```bash
+./openplayx-home serve  --config-dir /path/to/state
+./openplayx-home render --config-dir /path/to/state --output generated   # output contains credentials
+```
+
+Topology, troubleshooting and the limits of what the tests prove:
+[docs/operations.md](docs/operations.md) (Chinese).
+
+## Contributing
+
+Issues and pull requests are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Report security problems privately as described in [SECURITY.md](SECURITY.md).
+
+## Disclaimer
+
+This project is for reaching your own services at home. Map only services you
+are entitled to access, and follow the laws on networking and encrypted
+communication where you live. Availability on any network, including
+cross-border links, is not guaranteed.
+
+## Upstream and license
+
+sing-box is licensed under GPL-3.0-or-later (with additional naming
+restrictions). This program links sing-box statically, so the source in this
+repository and the distributed binaries are provided as a whole under
+**GPL-3.0-or-later**; the full text is in [COPYING](COPYING). frp is
+Apache-2.0. When distributing binaries, provide the corresponding source.
+Upstream sources: [sing-box v1.12.12](https://github.com/SagerNet/sing-box/tree/v1.12.12),
+[frp v0.65.0](https://github.com/fatedier/frp/tree/v0.65.0).
