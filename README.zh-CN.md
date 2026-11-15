@@ -44,7 +44,7 @@ sudo openplayx-home status
 
 ## 配置
 
-当前为 `schemaVersion: 2`：网络层用 sing-box 字段（`singBox.inbound` / `singBox.outbound`），注册层用 frp 字段（`frpc`）。旧格式（`homeId`、`services`、`grants.json`）不再读取，也不提供自动导入。权威配置为 `home.json`，实际 UUID/token 仅存于私有 `secrets.json`。配置结构、启动、权限与验证说明见 [docs/configuration.md](docs/configuration.md)。
+当前为 `schemaVersion: 2`：网络层用 sing-box 字段（`singBox.inbound` / `singBox.outbound`），注册层用 frp 字段（`frpc`）。旧格式（`homeId`、`services`、`grants.json`）不再读取，也不提供自动导入。权威配置为 `home.json`，实际 UUID/token 仅存于私有 `secrets.json`。配置结构、启动、权限与验证说明见 [docs/configuration.zh-CN.md](docs/configuration.zh-CN.md)。
 
 ## Web 配置管理
 
@@ -84,7 +84,7 @@ sudo openplayx-home uninstall        # 删除 systemd 服务，保留配置与 r
 ./openplayx-home render --config-dir /path/to/state --output generated   # 输出含凭据
 ```
 
-部署拓扑、故障排查和验证边界见 [docs/operations.md](docs/operations.md)。
+部署拓扑、故障排查和验证边界见 [docs/operations.zh-CN.md](docs/operations.zh-CN.md)。
 
 ## 参与贡献
 

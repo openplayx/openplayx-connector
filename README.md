@@ -85,7 +85,7 @@ layer (`frpc`). The old format (`homeId`, `services`, `grants.json`) is no
 longer read and not imported automatically. The authoritative configuration is
 `home.json`; the real UUIDs and tokens are only in the private `secrets.json`.
 Structure, startup, permissions and verification are described in
-[docs/configuration.md](docs/configuration.md) (Chinese).
+[docs/configuration.md](docs/configuration.md).
 
 ## Web configuration
 
@@ -147,7 +147,7 @@ Run in the foreground or generate configuration without installing a service:
 ```
 
 Topology, troubleshooting and the limits of what the tests prove:
-[docs/operations.md](docs/operations.md) (Chinese).
+[docs/operations.md](docs/operations.md).
 
 ## Contributing
 
