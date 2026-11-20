@@ -1,12 +1,12 @@
 /dist/
-/openplayx-home
-/src/openplayx-home
+/openplayx-connector
+/src/openplayx-connector
 generated/
 secrets/
 secrets-pki/
 
 # Private management state (when a checkout is used as the config directory)
-/home.json
+/connector.json
 /secrets.json
 /admin.json
 /status.json

@@ -1,4 +1,6 @@
-# OpenPlayX Home
+# OpenPlayX Connector
+
+Repository: [openplayx/openplayx-connector](https://github.com/openplayx/openplayx-connector). Jenkins releases use numeric `MAJOR.MINOR.PATCH` tags starting at `0.1.0`, automatically incrementing PATCH after checks and packaging pass.
 
 English | [简体中文](README.zh-CN.md)
 
@@ -26,45 +28,45 @@ Automatic installation supports Linux amd64/arm64 with systemd; the real
 in-process link is also verified on macOS arm64. Vendor NAS systems, Windows
 services, Docker and other architectures are not verified, and a NAS GUI is not
 assumed to run the systemd installer. Devices without systemd can run
-`openplayx-home serve` in the foreground.
+`openplayx-connector serve` in the foreground.
 
 ## Build
 
 Requires Go 1.24+. The Go sources, module files and the embedded web page
 (`src/web/`) are under `src/`; apart from `src/role.go`, `src/` is identical in
-the Relay and Home repositories.
+the Relay and Connector repositories.
 
 ```bash
-scripts/build.sh                       # dist/openplayx-home-linux-{amd64,arm64} + SHA256SUMS
+scripts/build.sh                       # dist/openplayx-connector-linux-{amd64,arm64} + SHA256SUMS
 (cd src && go test ./...)             # unit tests + in-process end-to-end tests
 ```
 
 ## Quick start: install
 
-Get the whole **home/** directory produced by `openplayx-relay pair` from the
-Relay administrator (home.json, the private secrets.json and the managed TLS
+Get the whole **connector/** directory produced by `openplayx-relay pair` from the
+Relay administrator (connector.json, the private secrets.json and the managed TLS
 assets). Do not accept relay/ or app.json.
 
-Put its contents into `/var/lib/openplayx-home/` (directory 0700, files 0600),
+Put its contents into `/var/lib/openplayx-connector/` (directory 0700, files 0600),
 then:
 
 ```bash
-sudo ./openplayx-home install
-# Log in at http://<home LAN IP>:9080 (first time: /var/lib/openplayx-home/bootstrap-token),
+sudo ./openplayx-connector install
+# Log in at http://<home LAN IP>:9080 (first time: /var/lib/openplayx-connector/bootstrap-token),
 # enter the real NAS targets in frpc.proxies, save and click Apply; or after saving, run locally:
-sudo openplayx-home apply
-sudo openplayx-home status
+sudo openplayx-connector apply
+sudo openplayx-connector status
 ```
 
-`install` creates the system account `openplayx-home`, copies the binary to
-`/opt/openplayx-home/releases/<timestamp>/` and switches `current`, links
-`/usr/local/bin/openplayx-home`, and writes `openplayx-home.service` (see
-`deploy/openplayx-home.service`). The service runs as that account; the admin
+`install` creates the system account `openplayx-connector`, copies the binary to
+`/opt/openplayx-connector/releases/<timestamp>/` and switches `current`, links
+`/usr/local/bin/openplayx-connector`, and writes `openplayx-connector.service` (see
+`deploy/openplayx-connector.service`). The service runs as that account; the admin
 page can edit and save before any components are applied. `frpc.proxies` is
 the service registration: each `remotePort` must be inside the Relay's
 `frps.allowPorts`, otherwise frps rejects that proxy. Common mappings are in
 [examples/proxies.json](examples/proxies.json) (the `frpc.proxies` field of
-`home.json`).
+`connector.json`).
 
 On apply, sing-box starts first; frpc starts only after a successful SOCKS5
 handshake on loopback. frpc always uses TCP + `transport.proxyURL`, verifies the
@@ -83,14 +85,14 @@ The current format is `schemaVersion: 2`: sing-box fields for the network layer
 (`singBox.inbound` / `singBox.outbound`) and frp fields for the registration
 layer (`frpc`). The old format (`homeId`, `services`, `grants.json`) is no
 longer read and not imported automatically. The authoritative configuration is
-`home.json`; the real UUIDs and tokens are only in the private `secrets.json`.
+`connector.json`; the real UUIDs and tokens are only in the private `secrets.json`.
 Structure, startup, permissions and verification are described in
 [docs/configuration.md](docs/configuration.md).
 
 ## Web configuration
 
 The page has two parts, **transport link** and **available services**. It shows
-the saved configuration; expand a section to edit it. The Home manages the
+the saved configuration; expand a section to edit it. The Connector manages the
 actual service mappings; the Relay manages the registrable port range and
 identity permissions. Certificates, logs and admin access are under the link
 maintenance options. Save at the top of the page, then apply the saved
@@ -106,11 +108,11 @@ private home networks that arrive on a local LAN interface. Local IPs are
 detected automatically; extra DNS names go into allowedHosts. There is no
 wildcard Host allowlist.
 
-An explicit loopback listener in an existing `home.json` is not silently
+An explicit loopback listener in an existing `connector.json` is not silently
 replaced by an upgrade. To enable LAN access:
 
 ```bash
-sudo ./openplayx-home install --enable-lan
+sudo ./openplayx-connector install --enable-lan
 ```
 
 This saves the existing loopback configuration as a new LAN-access revision and
@@ -120,19 +122,19 @@ custom config directory. The host firewall must allow TCP 9080 from the home
 network; do not forward the port on the router.
 
 For manual deployments without systemd, run
-`openplayx-home enable-lan --config-dir /actual/dir`, then restart the `serve`
+`openplayx-connector enable-lan --config-dir /actual/dir`, then restart the `serve`
 process. With a damaged configuration the program still uses the loopback
 recovery entry and never exposes an unknown configuration to the LAN.
 
 ## Maintenance
 
 ```bash
-sudo systemctl stop|start|restart openplayx-home
-sudo openplayx-home status
-sudo openplayx-home check            # validate the saved configuration with the built-in sing-box/frpc
-sudo ./openplayx-home update         # install a newly built binary; restores the old one if startup fails
-sudo openplayx-home rollback         # switch back to the previously installed binary
-sudo openplayx-home uninstall        # remove the systemd service, keep configuration and releases
+sudo systemctl stop|start|restart openplayx-connector
+sudo openplayx-connector status
+sudo openplayx-connector check            # validate the saved configuration with the built-in sing-box/frpc
+sudo ./openplayx-connector update         # install a newly built binary; restores the old one if startup fails
+sudo openplayx-connector rollback         # switch back to the previously installed binary
+sudo openplayx-connector uninstall        # remove the systemd service, keep configuration and releases
 ```
 
 Upgrading upstream means changing `src/go.mod`, rebuilding and reviewing; the
@@ -142,8 +144,8 @@ configuration, use **restore previous configuration** on the web page and apply.
 Run in the foreground or generate configuration without installing a service:
 
 ```bash
-./openplayx-home serve  --config-dir /path/to/state
-./openplayx-home render --config-dir /path/to/state --output generated   # output contains credentials
+./openplayx-connector serve  --config-dir /path/to/state
+./openplayx-connector render --config-dir /path/to/state --output generated   # output contains credentials
 ```
 
 Topology, troubleshooting and the limits of what the tests prove:

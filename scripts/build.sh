@@ -5,7 +5,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root/src"
 name="$(basename "$(go list -m)")"
-version="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
+version="${VERSION:-$(cat "$root/VERSION")}"
 targets=("$@")
 [ ${#targets[@]} -gt 0 ] || targets=(linux/amd64 linux/arm64)
 mkdir -p "$root/dist"

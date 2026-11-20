@@ -1,4 +1,4 @@
-module github.com/openplayx/openplayx-home
+module github.com/openplayx/openplayx-connector
 
 go 1.24.0
 

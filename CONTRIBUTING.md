@@ -5,8 +5,8 @@ Thanks for your interest. Bug reports, fixes and small improvements are welcome.
 ## Issues
 
 - Search existing issues first.
-- For bugs, include the version (`openplayx-home version` or the commit), the platform,
-  what you did and the output of `openplayx-home status` and `journalctl -u openplayx-home`.
+- For bugs, include the version (`openplayx-connector version` or the commit), the platform,
+  what you did and the output of `openplayx-connector status` and `journalctl -u openplayx-connector`.
   Remove UUIDs, tokens, domains, certificates and IP addresses before posting:
   logs strip known secrets, but check them yourself.
 - Security problems: do **not** open a public issue, see [SECURITY.md](SECURITY.md).
