@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -20,13 +21,23 @@ import (
 	"time"
 )
 
+type platformRegistration struct {
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
+}
 type platformTarget struct {
-	ID        string `json:"id"`
-	ServiceID string `json:"serviceId,omitempty"`
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	Host      string `json:"host"`
-	Port      int    `json:"port"`
+	Registration *platformRegistration `json:"registration,omitempty"`
+	ID           string                `json:"id"`
+	Disabled     bool                  `json:"disabled,omitempty"`
+	Deleted      bool                  `json:"deleted,omitempty"`
+	Synced       bool                  `json:"synced"`
+	Generation   uint64                `json:"generation,omitempty"`
+	ServiceID    string                `json:"serviceId,omitempty"`
+	Name         string                `json:"name"`
+	Type         string                `json:"type"`
+	Host         string                `json:"host"`
+	Port         int                   `json:"port"`
 }
 type platformState struct {
 	HighestRevision string           `json:"highestRevision,omitempty"`
@@ -51,6 +62,7 @@ type connectorPlatform struct {
 	baseHash string
 	planHash string
 	fault    string
+	lastSync time.Time
 }
 
 func newConnectorPlatform(s *Store, r *Runtime) (*connectorPlatform, error) {
@@ -70,18 +82,26 @@ func newConnectorPlatform(s *Store, r *Runtime) (*connectorPlatform, error) {
 }
 func (p *connectorPlatform) save() error { return atomicWrite(p.store.file("platform.json"), p.state) }
 func (p *connectorPlatform) request(ctx context.Context, path, token string, body any, key string) (obj, int, error) {
-	var reader io.Reader
 	method := "GET"
+	if body != nil {
+		method = "POST"
+	}
+	return p.requestAs(ctx, method, path, token, body, key, "")
+}
+func (p *connectorPlatform) requestAs(ctx context.Context, method, path, token string, body any, key, revision string) (obj, int, error) {
+	var reader io.Reader
 	if body != nil {
 		data, _ := json.Marshal(body)
 		reader = bytes.NewReader(data)
-		method = "POST"
 	}
 	req, err := http.NewRequestWithContext(ctx, method, p.origin+"/v1/relay"+path, reader)
 	if err != nil {
 		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if revision != "" {
+		req.Header.Set("If-Match", "\""+revision+"\"")
+	}
 	req.Header.Set("User-Agent", "OpenPlayX-Connector/"+version)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -143,12 +163,7 @@ func platformHost(value string) bool {
 	ip, err := netip.ParseAddr(value)
 	return err == nil && (ip.IsPrivate() || ip.IsLoopback()) && !ip.IsUnspecified() && !ip.IsMulticast()
 }
-func (p *connectorPlatform) add(name, kind, host string, port int) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.state.MachineToken == "" {
-		return errors.New("connector_not_bound")
-	}
+func validPlatformTarget(name, kind, host string, port int) error {
 	allowed := map[string]bool{"smb": true, "webdav": true, "jellyfin": true, "emby": true, "other_tcp": true}
 	if name == "" || len(name) > 128 || !allowed[kind] || !platformHost(host) || port < 1 || port > 65535 {
 		return errors.New("invalid_service")
@@ -156,16 +171,203 @@ func (p *connectorPlatform) add(name, kind, host string, port int) error {
 	if port == 9080 || port == 9082 || port == 1080 || port == 1082 || port == 22 {
 		return errors.New("management_port_denied")
 	}
+	return nil
+}
+func (p *connectorPlatform) add(name, kind, host string, port int) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.state.MachineToken == "" {
+		return errors.New("connector_not_bound")
+	}
+	if err := validPlatformTarget(name, kind, host, port); err != nil {
+		return err
+	}
 	if len(p.state.Targets) >= 32 {
 		return errors.New("service_limit")
 	}
 	for _, t := range p.state.Targets {
-		if t.Name == name {
+		if !t.Deleted && t.Name == name {
 			return errors.New("duplicate_service_name")
 		}
 	}
 	p.state.Targets = append(p.state.Targets, platformTarget{ID: tokenURLSafe(16), Name: name, Type: kind, Host: host, Port: port})
 	return p.save()
+}
+
+// Local configuration is authoritative; deletion tombstones survive outages.
+func (p *connectorPlatform) change(id, name, kind, host string, port int, disabled, remove bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.state.MachineToken == "" {
+		return errors.New("connector_not_bound")
+	}
+	index := -1
+	for i, target := range p.state.Targets {
+		if target.ID == id {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return errors.New("service_not_found")
+	}
+	target := p.state.Targets[index]
+	if remove {
+		target.Deleted = true
+	} else {
+		if target.Deleted {
+			return errors.New("service_deleting")
+		}
+		if err := validPlatformTarget(name, kind, host, port); err != nil {
+			return err
+		}
+		for i, other := range p.state.Targets {
+			if i != index && !other.Deleted && other.Name == name {
+				return errors.New("duplicate_service_name")
+			}
+		}
+		target.Name = name
+		target.Type = kind
+		target.Host = host
+		target.Port = port
+		target.Disabled = disabled
+	}
+	target.Synced = false
+	p.state.Targets[index] = target
+	if err := p.save(); err != nil {
+		return err
+	}
+	if p.profile != nil {
+		if err := p.applyProfile(p.profile); err != nil {
+			// Never retain a removed mapping if a local dynamic update fails.
+			_ = p.runtime.Stop()
+			p.baseHash = ""
+			p.planHash = ""
+			p.fault = "service_update_failed"
+		}
+	}
+	return nil
+}
+func (p *connectorPlatform) synchronizeTargets(ctx context.Context) error {
+	for index, target := range p.state.Targets {
+		if target.ServiceID != "" {
+			continue
+		}
+		key := target.ID
+		if target.Generation > 0 {
+			key = fmt.Sprintf("%s-%d", key, target.Generation)
+		}
+		if target.Registration == nil {
+			status := "enabled"
+			if target.Disabled || target.Deleted {
+				status = "disabled"
+			}
+			target.Registration = &platformRegistration{Name: target.Name, Type: target.Type, Status: status}
+			p.state.Targets[index] = target
+			if err := p.save(); err != nil {
+				return err
+			}
+		}
+		result, _, err := p.request(ctx, "/connector/services", p.state.MachineToken, target.Registration, key)
+		if err != nil {
+			return err
+		}
+		service, _ := result["service"].(map[string]any)
+		target.ServiceID = stringValue(service["serviceId"])
+		if target.ServiceID == "" {
+			return errors.New("invalid_service_identity")
+		}
+		target.Registration = nil
+		p.state.Targets[index] = target
+		if err = p.save(); err != nil {
+			return err
+		}
+	}
+	catalog, _, err := p.request(ctx, "/connector/services?limit=100", p.state.MachineToken, nil, "")
+	if err != nil {
+		return err
+	}
+	if catalog["nextCursor"] != nil && catalog["nextCursor"] != "" {
+		return errors.New("service_catalog_incomplete")
+	}
+	items, ok := catalog["items"].([]any)
+	if !ok {
+		return errors.New("invalid_service_catalog")
+	}
+	revision := stringValue(catalog["revision"])
+	if revision == "" {
+		return errors.New("invalid_profile_revision")
+	}
+	remote := map[string]obj{}
+	for _, item := range items {
+		service, ok := item.(map[string]any)
+		if !ok || service["connectorId"] != p.state.ConnectorID {
+			return errors.New("profile_identity_mismatch")
+		}
+		remote[stringValue(service["serviceId"])] = service
+	}
+	for index := 0; index < len(p.state.Targets); {
+		target := p.state.Targets[index]
+		service, found := remote[target.ServiceID]
+		if target.Deleted {
+			if found && service["status"] != "deleting" && service["status"] != "deleted" {
+				result, _, err := p.requestAs(ctx, "DELETE", "/connector/services/"+url.PathEscape(target.ServiceID), p.state.MachineToken, obj{}, "", revision)
+				if err != nil {
+					return err
+				}
+				revision = stringValue(result["revision"])
+			}
+			delete(remote, target.ServiceID)
+			p.state.Targets = append(p.state.Targets[:index], p.state.Targets[index+1:]...)
+			if err := p.save(); err != nil {
+				return err
+			}
+			continue
+		}
+		if !found {
+			// Persist a fresh generation instead of replaying a retired registration.
+			target.ServiceID = ""
+			target.Generation++
+			target.Synced = false
+		} else if service["status"] == "deleting" {
+			target.Synced = false
+		} else {
+			status := "enabled"
+			if target.Disabled {
+				status = "disabled"
+			}
+			if service["name"] != target.Name || service["type"] != target.Type || service["status"] != status {
+				result, _, err := p.requestAs(ctx, "PATCH", "/connector/services/"+url.PathEscape(target.ServiceID), p.state.MachineToken, obj{"name": target.Name, "type": target.Type, "status": status}, "", revision)
+				if err != nil {
+					return err
+				}
+				revision = stringValue(result["revision"])
+			}
+			target.Synced = true
+		}
+		p.state.Targets[index] = target
+		if err := p.save(); err != nil {
+			return err
+		}
+		index++
+	}
+	// A complete catalog may contain stale registrations left by an older
+	// local configuration. Only this Connector's records are reconciled.
+	desired := map[string]bool{}
+	for _, target := range p.state.Targets {
+		desired[target.ServiceID] = true
+	}
+	for id, service := range remote {
+		if desired[id] || service["status"] == "deleting" || service["status"] == "deleted" {
+			continue
+		}
+		result, _, err := p.requestAs(ctx, "DELETE", "/connector/services/"+url.PathEscape(id), p.state.MachineToken, obj{}, "", revision)
+		if err != nil {
+			return err
+		}
+		revision = stringValue(result["revision"])
+	}
+	return nil
 }
 func (p *connectorPlatform) selectNode(id string) error {
 	p.mu.Lock()
@@ -187,7 +389,7 @@ func (p *connectorPlatform) view() obj {
 	if p.profile != nil {
 		nodes, _ = p.profile["nodes"].([]any)
 	}
-	result := obj{"bound": p.state.MachineToken != "", "connectorId": p.state.ConnectorID, "nodeId": p.state.NodeID, "nodes": nodes, "services": p.state.Targets, "error": p.fault, "components": p.runtime.Components(), "version": version}
+	result := obj{"bound": p.state.MachineToken != "", "connectorId": p.state.ConnectorID, "nodeId": p.state.NodeID, "nodes": nodes, "services": p.state.Targets, "error": p.fault, "components": p.runtime.Components(), "version": version, "lastSync": p.lastSync}
 	if p.state.Proof != "" && time.Now().Before(p.state.ExpiresAt) {
 		result["userCode"] = p.state.Code
 		result["approvalURL"] = "https://openplayx.com/account/connector#code=" + p.state.Code
@@ -221,23 +423,13 @@ func (p *connectorPlatform) sync(ctx context.Context) error {
 			return err
 		}
 	}
-	for index, target := range p.state.Targets {
-		if target.ServiceID != "" {
-			continue
+	if err := p.synchronizeTargets(ctx); err != nil {
+		if err.Error() == "unauthorized" {
+			_ = p.runtime.Stop()
+			p.planHash = ""
+			p.baseHash = ""
 		}
-		result, _, err := p.request(ctx, "/connector/services", p.state.MachineToken, obj{"name": target.Name, "type": target.Type}, target.ID)
-		if err != nil {
-			return err
-		}
-		service, _ := result["service"].(map[string]any)
-		target.ServiceID = stringValue(service["serviceId"])
-		if target.ServiceID == "" {
-			return errors.New("invalid_service_identity")
-		}
-		p.state.Targets[index] = target
-		if err = p.save(); err != nil {
-			return err
-		}
+		return err
 	}
 	profile, status, err := p.request(ctx, "/connector/config", p.state.MachineToken, nil, "")
 	if err != nil {
@@ -268,13 +460,19 @@ func (p *connectorPlatform) sync(ctx context.Context) error {
 			return err
 		}
 	}
+	p.lastSync = time.Now()
+	return p.applyProfile(profile)
+}
+
+// Caller holds p.mu. Service-only changes reuse the existing transport.
+func (p *connectorPlatform) applyProfile(profile obj) error {
 	p.profile = profile
 	nodes, _ := profile["nodes"].([]any)
 	// First enrollment can pick the first available node. Refresh never switches it.
 	if p.state.NodeID == "" && len(nodes) > 0 {
 		node, _ := nodes[0].(map[string]any)
 		p.state.NodeID = stringValue(node["nodeId"])
-		if err = p.save(); err != nil {
+		if err := p.save(); err != nil {
 			return err
 		}
 	}
@@ -368,6 +566,9 @@ func platformPlan(profile, node obj, targets []platformTarget) (*Plan, string, s
 	proxies := []any{}
 	services, _ := profile["services"].([]any)
 	for _, target := range targets {
+		if target.Deleted || target.Disabled {
+			continue
+		}
 		for _, item := range services {
 			service, _ := item.(map[string]any)
 			if service["serviceId"] != target.ServiceID || service["connectorId"] != connector {
@@ -421,6 +622,15 @@ func (m *ManagerServer) platformRequest(w http.ResponseWriter, r *http.Request, 
 			return errors.New("invalid_port")
 		}
 		err = p.add(strings.TrimSpace(stringValue(data["name"])), stringValue(data["type"]), strings.TrimSpace(stringValue(data["host"])), int(number))
+	case r.Method == "POST" && r.RequestURI == "/api/platform/services/update":
+		number, ok := intValue(data["port"])
+		if !ok {
+			return errors.New("invalid_port")
+		}
+		disabled, _ := data["disabled"].(bool)
+		err = p.change(stringValue(data["id"]), strings.TrimSpace(stringValue(data["name"])), stringValue(data["type"]), strings.TrimSpace(stringValue(data["host"])), int(number), disabled, false)
+	case r.Method == "POST" && r.RequestURI == "/api/platform/services/remove":
+		err = p.change(stringValue(data["id"]), "", "", "", 0, false, true)
 	case r.Method == "POST" && r.RequestURI == "/api/platform/node":
 		err = p.selectNode(stringValue(data["nodeId"]))
 	default:

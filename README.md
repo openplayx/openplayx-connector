@@ -48,8 +48,8 @@ For API-managed nodes such as `syd1`, install the systemd service, then set
 Alternatively run `serve --platform --config-dir <directory>`.
 The LAN manager provides one-time enrollment, a fixed node selection, and explicit
 local service mappings. Approve enrollment with the same phone account at
-`https://openplayx.com/account/connector`; grant phone service permissions at
-`https://openplayx.com/account/permissions`.
+`https://openplayx.com/account/connector`; view synchronized services at
+`https://openplayx.com/account/`. All signed-in devices of the same account can access its enabled services without per-device grants.
 Account passwords stay on the first-party HTTPS origin; the Connector stores only
 its scoped machine identity and local targets in a private 0600 state file.
 See [the platform installation steps](README.zh-CN.md#平台模式api-管理的-relay).
@@ -185,3 +185,5 @@ repository and the distributed binaries are provided as a whole under
 Apache-2.0. When distributing binaries, provide the corresponding source.
 Upstream sources: [sing-box v1.12.12](https://github.com/SagerNet/sing-box/tree/v1.12.12),
 [frp v0.65.0](https://github.com/fatedier/frp/tree/v0.65.0).
+
+Platform-mode services are managed on this Connector: add, edit name/type/local target, disable and delete in the LAN manager. Desired state is persisted privately and reconciled using the scoped machine identity; target addresses and ports never leave the machine. Frozen registration requests preserve idempotency after uncertain responses; deletion tombstones survive outages and stop local forwarding immediately. The cloud user page is read-only for service configuration.

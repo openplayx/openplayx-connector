@@ -73,6 +73,14 @@ func TestPlatformEnrollmentPersistenceIdempotentRegistrationAndSecretProjection(
 		if r.Header.Get("Authorization") != "Bearer private-machine-token" {
 			t.Error("incorrect machine identity")
 		}
+		if r.URL.Path == "/v1/relay/connector/services" && r.Method == "GET" {
+			items := []any{}
+			if creates > 0 {
+				items = append(items, obj{"serviceId": "service_a", "connectorId": "connector_a", "name": "Jellyfin", "type": "jellyfin", "status": "enabled"})
+			}
+			json.NewEncoder(w).Encode(obj{"items": items, "revision": "1"})
+			return
+		}
 		if r.URL.Path == "/v1/relay/connector/services" {
 			creates++
 			key := r.Header.Get("Idempotency-Key")
@@ -208,5 +216,191 @@ func TestPlatformAPIJSONNumbersReachNodeAndServicePlan(t *testing.T) {
 	cfg, proxies, err := frpClientConfig(plan.FRP)
 	if err != nil || cfg.ServerPort != 7000 || len(proxies) != 1 {
 		t.Fatal("JSON ports failed to reach frpc", err)
+	}
+}
+
+func TestPlatformLocalEditsAndDeletionReconcileWithoutSendingPrivateTargets(t *testing.T) {
+	store, _ := NewStore(t.TempDir(), roleConnector)
+	p, _ := newConnectorPlatform(store, NewRuntime(roleConnector))
+	p.state.MachineToken = "private-machine"
+	p.state.ConnectorID = "connector_a"
+	remote := obj{"serviceId": "service_a", "connectorId": "connector_a", "name": "Old", "type": "smb", "status": "enabled"}
+	revision := "7"
+	var patches, deletes int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer private-machine" {
+			t.Error("machine identity missing")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == "GET" {
+			items := []any{}
+			if remote != nil {
+				items = append(items, remote)
+			}
+			json.NewEncoder(w).Encode(obj{"items": items, "revision": revision})
+			return
+		}
+		if r.Header.Get("If-Match") != "\""+revision+"\"" {
+			t.Error("revision not preserved", r.Header.Get("If-Match"))
+		}
+		if r.Method == "PATCH" {
+			var body obj
+			json.NewDecoder(r.Body).Decode(&body)
+			if _, ok := body["host"]; ok {
+				t.Error("private target leaked")
+			}
+			if _, ok := body["port"]; ok {
+				t.Error("private port leaked")
+			}
+			for k, v := range body {
+				remote[k] = v
+			}
+			patches++
+			revision = "8"
+		}
+		if r.Method == "DELETE" {
+			deletes++
+			remote = nil
+			revision = "9"
+		}
+		w.WriteHeader(202)
+		json.NewEncoder(w).Encode(obj{"revision": revision, "operationId": "operation_fixture"})
+	}))
+	defer server.Close()
+	p.origin = server.URL
+	p.client = server.Client()
+	p.state.Targets = []platformTarget{{ID: "local", ServiceID: "service_a", Name: "Old", Type: "smb", Host: "127.0.0.1", Port: 445}}
+	if err := p.change("local", "New", "webdav", "192.168.1.20", 8080, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.synchronizeTargets(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if patches != 1 || remote["name"] != "New" || remote["type"] != "webdav" || remote["status"] != "disabled" || !p.state.Targets[0].Synced {
+		t.Fatal("desired metadata not synchronized")
+	}
+	if err := p.change("local", "", "", "", 0, false, true); err != nil {
+		t.Fatal(err)
+	}
+	recovered, _ := newConnectorPlatform(store, NewRuntime(roleConnector))
+	recovered.origin = server.URL
+	recovered.client = server.Client()
+	if !recovered.state.Targets[0].Deleted {
+		t.Fatal("pending deletion was lost")
+	}
+	if err := recovered.synchronizeTargets(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if deletes != 1 || len(recovered.state.Targets) != 0 {
+		t.Fatal("remote removal not reconciled")
+	}
+}
+
+func TestPlatformLostRegistrationCanBeDeletedWithoutChangingIdempotencyBody(t *testing.T) {
+	store, _ := NewStore(t.TempDir(), roleConnector)
+	p, _ := newConnectorPlatform(store, NewRuntime(roleConnector))
+	p.state.MachineToken = "private-machine"
+	p.state.ConnectorID = "connector_a"
+	var first string
+	var remote obj
+	creates := 0
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == "POST" {
+			data, _ := io.ReadAll(r.Body)
+			posts++
+			if first == "" {
+				first = string(data)
+				creates++
+				remote = obj{"serviceId": "service_a", "connectorId": "connector_a", "name": "SMB", "type": "smb", "status": "enabled"}
+				w.WriteHeader(503)
+				io.WriteString(w, `{"error":{"code":"test_lost_response"}}`)
+				return
+			}
+			if first != string(data) {
+				t.Error("registration body changed after uncertain response")
+			}
+			json.NewEncoder(w).Encode(obj{"service": remote})
+			return
+		}
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode(obj{"items": []any{remote}, "revision": "7"})
+			return
+		}
+		if r.Method == "DELETE" {
+			remote = nil
+			w.WriteHeader(202)
+			json.NewEncoder(w).Encode(obj{"revision": "8"})
+			return
+		}
+	}))
+	defer server.Close()
+	p.origin = server.URL
+	p.client = server.Client()
+	if err := p.add("SMB", "smb", "127.0.0.1", 445); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.synchronizeTargets(context.Background()); err == nil {
+		t.Fatal("uncertain registration did not fail")
+	}
+	id := p.state.Targets[0].ID
+	if err := p.change(id, "", "", "", 0, false, true); err != nil {
+		t.Fatal(err)
+	}
+	recovered, _ := newConnectorPlatform(store, NewRuntime(roleConnector))
+	recovered.origin = server.URL
+	recovered.client = server.Client()
+	if err := recovered.synchronizeTargets(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if creates != 1 || posts != 2 || remote != nil || len(recovered.state.Targets) != 0 {
+		t.Fatal("lost registration left a published orphan")
+	}
+}
+
+func TestPlatformDisabledAndDeletingTargetsNeverProduceRuntimeProxies(t *testing.T) {
+	profile, node, targets := platformFixture()
+	for _, deleted := range []bool{false, true} {
+		targets[0].Disabled = !deleted
+		targets[0].Deleted = deleted
+		plan, _, _, err := platformPlan(profile, node, targets)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, proxies, err := frpClientConfig(plan.FRP)
+		if err != nil || len(proxies) != 0 {
+			t.Fatal("inactive target retained forwarding")
+		}
+	}
+}
+
+func TestPlatformEmptyDesiredConfigurationRemovesOnlyOwnStaleCatalog(t *testing.T) {
+	store, _ := NewStore(t.TempDir(), roleConnector)
+	p, _ := newConnectorPlatform(store, NewRuntime(roleConnector))
+	p.state.MachineToken = "private-machine"
+	p.state.ConnectorID = "connector_a"
+	deleted := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode(obj{"items": []any{obj{"serviceId": "stale_service", "connectorId": "connector_a", "status": "enabled"}}, "revision": "7"})
+			return
+		}
+		if r.Method != "DELETE" || r.URL.Path != "/v1/relay/connector/services/stale_service" || r.Header.Get("If-Match") != "\"7\"" {
+			t.Error("unsafe stale reconciliation")
+		}
+		deleted = true
+		w.WriteHeader(202)
+		json.NewEncoder(w).Encode(obj{"revision": "8"})
+	}))
+	defer server.Close()
+	p.origin = server.URL
+	p.client = server.Client()
+	if err := p.synchronizeTargets(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !deleted {
+		t.Fatal("stale service remained published")
 	}
 }

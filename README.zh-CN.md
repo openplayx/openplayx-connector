@@ -46,7 +46,7 @@ sudo systemctl restart openplayx-connector
 选择固定 Relay 后不会自动切换节点；本地服务填写名称、类型、目标 IP 和端口（例如
 Jellyfin `127.0.0.1:18096`、SMB `127.0.0.1:445`）。只支持显式服务映射；目标限回环和私网地址。
 平台自动分配远程端口，服务注册幂等重试；本地目标地址不上传到 API。
-注册后在 `https://openplayx.com/account/permissions` 为手机明确勾选服务权限，手机刷新平台配置后可用。
+配置完成后在 `https://openplayx.com/account/` 查看同步结果；同账号的手机、平板无需逐台授权，刷新平台配置后可访问自己的启用服务。
 
 服务更新通过 frpc 动态重载，不重建 sing-box / frpc 连接；节点、凭据变化可能重建传输。
 平台刷新失败保留现有路由，明确身份撤销或已选节点移除时停止传输，不切换到其他节点。
@@ -128,3 +128,5 @@ sudo openplayx-connector uninstall        # 删除 systemd 服务，保留配置
 ## 上游与许可证
 
 sing-box 以 GPL-3.0-or-later 授权（另有命名限制），本程序静态链接 sing-box，因此本仓库源码及分发的二进制整体按 **GPL-3.0-or-later** 提供，许可证全文见 [COPYING](COPYING)。frp 为 Apache-2.0。分发二进制时须同时提供对应源码。上游源码：[sing-box v1.12.12](https://github.com/SagerNet/sing-box/tree/v1.12.12)、[frp v0.65.0](https://github.com/fatedier/frp/tree/v0.65.0)。
+
+平台模式的服务新增、名称/类型/本地目标编辑、启停和删除都在本机管理页完成。配置仅存在私有 platform.json，由 Connector 用机器身份同步云端元数据；本地 IP、端口和服务密码不会上传。注册请求先冻结并持久化正文，响应丢失后可幂等重试；删除标记在断网后保留，先停止本地映射，再重试清理云端。云端用户中心不能修改服务。
