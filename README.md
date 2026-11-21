@@ -1,6 +1,6 @@
 # OpenPlayX Connector
 
-Repository: [openplayx/openplayx-connector](https://github.com/openplayx/openplayx-connector). Jenkins releases use numeric `MAJOR.MINOR.PATCH` tags starting at `0.1.0`, automatically incrementing PATCH after checks and packaging pass.
+Repository: [openplayx/openplayx-connector](https://github.com/openplayx/openplayx-connector). Jenkins releases use `vMAJOR.MINOR.PATCH` tags starting at `v0.1.0`, automatically incrementing PATCH after checks and packaging pass.
 
 English | [简体中文](README.zh-CN.md)
 

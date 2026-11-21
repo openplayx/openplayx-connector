@@ -1,6 +1,6 @@
 # OpenPlayX Connector
 
-仓库：[openplayx/openplayx-connector](https://github.com/openplayx/openplayx-connector)。程序名、系统服务及配置目录统一使用 `openplayx-connector`，主配置文件为 `connector.json`。Jenkins 发布在检查和打包通过后使用纯数字 `主版本.次版本.补丁版本` tag，首次 `0.1.0`，之后自动递增补丁号。
+仓库：[openplayx/openplayx-connector](https://github.com/openplayx/openplayx-connector)。程序名、系统服务及配置目录统一使用 `openplayx-connector`，主配置文件为 `connector.json`。Jenkins 发布在检查和打包通过后使用`v主版本.次版本.补丁版本` tag，首次 `v0.1.0`，之后自动递增补丁号。
 
 [English](README.md) | 简体中文
 
