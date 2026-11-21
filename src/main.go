@@ -62,6 +62,13 @@ Commands:
 
 Run "%s <command> -h" for flags.
 `, binaryName())
+	if role == roleConnector {
+		fmt.Fprintf(os.Stderr, `
+Pre-registration (file downloaded from https://openplayx.com/account/connectors):
+  sudo %[1]s install --enroll FILE                 Linux/systemd service
+  %[1]s serve --enroll FILE --config-dir DIR   foreground (macOS, FreeBSD, others)
+`, binaryName())
+	}
 }
 
 func main() {
@@ -142,10 +149,22 @@ func openStore(directory string) (*Store, func(), error) {
 func cmdServe(args []string) error {
 	flags, directory := newFlags("serve")
 	platformMode := flags.Bool("platform", os.Getenv("OPENPLAYX_CONNECTOR_PLATFORM") == "1", "Connector: use platform account enrollment and service registration")
+	enrollPath := flags.String("enroll", "", "Connector: import a pre-registration file from the account page (implies --platform)")
 	_ = flags.Parse(args)
+	if *enrollPath != "" {
+		if role != roleConnector {
+			return errors.New("--enroll is only supported by Connector")
+		}
+		*platformMode = true
+	}
 	store, err := NewStore(*directory, role)
 	if err != nil {
 		return err
+	}
+	if *enrollPath != "" {
+		if err = stageEnrollment(*enrollPath, store); err != nil {
+			return err
+		}
 	}
 	management, err := func() (obj, error) {
 		cfg, err := store.load()

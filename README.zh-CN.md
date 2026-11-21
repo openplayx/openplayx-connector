@@ -49,6 +49,10 @@ Relay 节点自动选择：Connector 测量本机到各启用节点的 TCP 连�
 节点仍在列表中且可达时保持不变，被移除或连续 3 次探测失败（每 30 秒一次）时自动切换。
 当前节点上报给平台，App 跟随该节点，不再提供手动选择。本地服务填写名称、类型、目标 IP 和端口（例如
 Jellyfin `127.0.0.1:18096`、SMB `127.0.0.1:445`）。只支持显式服务映射；目标限回环和私网地址。
+也可点「扫描局域网服务」，在后台运行（端口 1–65535 约需 1–3 分钟）：先发现在线主机（NetBIOS、ARP、TCP 探测）
+和自报服务（SSDP/DLNA、Plex GDM、Jellyfin/Emby UDP 7359、mDNS），再对本机和所在私网 /24 网段做所选范围的 TCP 端口扫描，
+同时对相同 UDP 范围做 QUIC 探测，最后逐个识别开放端口的协议：SMB、NFS、FTP/FTPES、隐式 FTPS、SSH/SFTP、HTTP、HTTPS、
+HTTP/3、WebDAV、DLNA、Jellyfin、Emby、Plex。结果点「使用」填入表单；FTP、DLNA 和 UDP 结果只展示、不能映射。保存前不会注册任何服务。
 平台自动分配远程端口，服务注册幂等重试；本地目标地址不上传到 API。
 配置完成后在 `https://openplayx.com/account/` 查看同步结果；同账号的手机、平板无需逐台授权，刷新平台配置后可访问自己的启用服务。
 
@@ -56,6 +60,23 @@ Jellyfin `127.0.0.1:18096`、SMB `127.0.0.1:445`）。只支持显式服务映�
 平台刷新失败保留现有路由；明确身份撤销时停止传输；当前节点被移除或不可达时切换到延迟最低的可达节点。
 frpc 明确加载系统 CA 文件并验证节点主机名，不使用跳过 TLS 验证的默认行为。
 请仅在可信局域网或通过 SSH 隧道访问本机管理页，不做公网端口映射。
+
+### 在网页预注册
+
+也可以不用配对码：在 `https://openplayx.com/account/connectors` 点击「预注册 Connector」，填写名称并选择平台，
+下载对应安装包和一次性注册文件（`openplayx-connector-enrollment.json`，7 天有效，只显示一次）。安装并启动后即自动连上：
+
+```sh
+# Linux（systemd）：写入平台模式 drop-in 并导入注册文件
+tar xzf openplayx-connector-<版本>-linux-<架构>-<sha>.tar.gz
+sudo ./openplayx-connector-<版本>-linux-<架构>/openplayx-connector install --enroll openplayx-connector-enrollment.json
+# macOS / FreeBSD / 其他：前台运行
+./openplayx-connector serve --enroll openplayx-connector-enrollment.json --config-dir "$HOME/.openplayx-connector"
+```
+
+`--enroll` 隐含平台模式。程序校验文件（签发 API、有效期、令牌格式）后复制到私有状态目录，导入 `platform.json` 并删除文件；
+令牌只作为一次性绑定凭据使用。未领取的预注册占用 Connector 配额，直到被领取、过期或在网页上取消。
+已取消或过期的注册文件会在本机清除，之后可改用配对码绑定。
 
 ## 快速开始：安装
 

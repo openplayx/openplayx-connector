@@ -51,6 +51,12 @@ For API-managed nodes such as `syd1`, install the systemd service, then set
 `OPENPLAYX_CONNECTOR_PLATFORM=1` in its systemd environment and restart it.
 Alternatively run `serve --platform --config-dir <directory>`.
 The LAN manager provides one-time enrollment and explicit local service mappings.
+"Scan LAN services" runs in the background (about 1–3 minutes for ports 1–65535): it finds live hosts
+(NetBIOS, ARP, a short TCP sweep) and self-announcing services (SSDP/DLNA, Plex GDM, Jellyfin/Emby UDP 7359,
+mDNS), connect-scans the chosen TCP range on loopback and the attached private /24 networks, sweeps the same
+UDP range for QUIC, and fingerprints every open port: SMB, NFS, FTP/FTPES, implicit FTPS, SSH/SFTP, HTTP,
+HTTPS, HTTP/3, WebDAV, DLNA, Jellyfin, Emby and Plex. "Use" fills the service form; FTP, DLNA and UDP results
+are shown but cannot be mapped. Nothing is registered until you save.
 The Relay node is chosen automatically: the Connector measures TCP connect time to
 every enabled node and uses the fastest reachable one. It stays on that node while it
 remains listed and reachable, and switches when the node is removed or fails three
@@ -61,6 +67,29 @@ and devices follow that node; there is no manual node selection. Approve enrollm
 Account passwords stay on the first-party HTTPS origin; the Connector stores only
 its scoped machine identity and local targets in a private 0600 state file.
 See [the platform installation steps](README.zh-CN.md#平台模式api-管理的-relay).
+
+### Pre-registration from the account page
+
+Instead of a pairing code, you can pre-register a Connector at
+`https://openplayx.com/account/connectors` ("Pre-register Connector"): choose a
+name and platform, then download the matching package and the one-time
+enrollment file (`openplayx-connector-enrollment.json`, valid for 7 days, shown
+only once). Install and start, and it connects without further steps:
+
+```sh
+# Linux with systemd (writes the platform drop-in and imports the file)
+tar xzf openplayx-connector-<version>-linux-<arch>-<sha>.tar.gz
+sudo ./openplayx-connector-<version>-linux-<arch>/openplayx-connector install --enroll openplayx-connector-enrollment.json
+# macOS / FreeBSD / others, foreground
+./openplayx-connector serve --enroll openplayx-connector-enrollment.json --config-dir "$HOME/.openplayx-connector"
+```
+
+`--enroll` implies platform mode. The file is validated (issuing API origin,
+expiry, token format), copied into the private state directory, imported into
+`platform.json` and deleted; the token is then used once as the binding proof.
+An unclaimed pre-registration reserves Connector quota until it is claimed,
+expires or is cancelled on the account page. A cancelled or expired file is
+cleared locally so a pairing code can be used instead.
 
 ## Quick start: install
 

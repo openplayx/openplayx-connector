@@ -47,6 +47,7 @@ type platformState struct {
 	UserID          string           `json:"userId,omitempty"`
 	Proof           string           `json:"proof,omitempty"`
 	Code            string           `json:"userCode,omitempty"`
+	Enrollment      string           `json:"enrollmentName,omitempty"`
 	ExpiresAt       time.Time        `json:"expiresAt,omitempty"`
 	NodeID          string           `json:"nodeId,omitempty"`
 	Targets         []platformTarget `json:"targets"`
@@ -72,8 +73,10 @@ type connectorPlatform struct {
 	reportFault  string
 }
 
+const platformOrigin = "https://api.openplayx.com"
+
 func newConnectorPlatform(s *Store, r *Runtime) (*connectorPlatform, error) {
-	p := &connectorPlatform{store: s, runtime: r, origin: "https://api.openplayx.com", client: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, probe: probeTCP}
+	p := &connectorPlatform{store: s, runtime: r, origin: platformOrigin, client: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, probe: probeTCP}
 	p.state.Schema = 1
 	if exists(s.file("platform.json")) {
 		raw, err := readJSON(s.file("platform.json"))
@@ -85,6 +88,7 @@ func newConnectorPlatform(s *Store, r *Runtime) (*connectorPlatform, error) {
 			return nil, errors.New("unsupported platform state")
 		}
 	}
+	p.pickupEnrollment()
 	return p, nil
 }
 func (p *connectorPlatform) save() error { return atomicWrite(p.store.file("platform.json"), p.state) }
@@ -386,7 +390,12 @@ func (p *connectorPlatform) view() obj {
 	result := obj{"bound": p.state.MachineToken != "", "connectorId": p.state.ConnectorID, "nodeId": p.state.NodeID, "nodes": nodes, "services": p.state.Targets, "error": p.fault, "components": p.runtime.Components(), "version": version, "lastSync": p.lastSync, "nodeHealth": p.nodeLatencies(), "reportedNodeId": p.reportedNode, "reportError": p.reportFault}
 	if p.state.Proof != "" && time.Now().Before(p.state.ExpiresAt) {
 		result["userCode"] = p.state.Code
-		result["approvalURL"] = "https://openplayx.com/account/connector#code=" + p.state.Code
+		if p.state.Code != "" {
+			result["approvalURL"] = "https://openplayx.com/account/connector#code=" + p.state.Code
+		}
+		if p.state.Enrollment != "" {
+			result["enrollmentName"] = p.state.Enrollment
+		}
 	}
 	return result
 }
@@ -399,6 +408,11 @@ func (p *connectorPlatform) sync(ctx context.Context) error {
 		}
 		result, status, err := p.request(ctx, "/connector/bindings/claim", "", obj{"proof": p.state.Proof}, "")
 		if err != nil {
+			if err.Error() == "invalid_challenge" {
+				// Expired, cancelled or already used: allow a fresh binding.
+				p.state.Proof, p.state.Code, p.state.Enrollment = "", "", ""
+				_ = p.save()
+			}
 			return err
 		}
 		if status == 202 {
@@ -413,6 +427,7 @@ func (p *connectorPlatform) sync(ctx context.Context) error {
 		}
 		p.state.Proof = ""
 		p.state.Code = ""
+		p.state.Enrollment = ""
 		if err = p.save(); err != nil {
 			return err
 		}
@@ -604,6 +619,26 @@ func (m *ManagerServer) platformRequest(w http.ResponseWriter, r *http.Request, 
 	p := m.platform
 	if p == nil {
 		return cfgErr("notFound", "仅 Connector 支持平台连接。", 404)
+	}
+	switch {
+	case r.RequestURI == "/api/platform/scan" && r.Method == "GET":
+		m.reply(w, 200, connectorScanner.view(), nil)
+		return nil
+	case r.RequestURI == "/api/platform/scan" && r.Method == "POST":
+		first, okFirst := intValue(data["portStart"])
+		last, okLast := intValue(data["portEnd"])
+		if !okFirst || !okLast {
+			first, last = 1, 65535
+		}
+		if err := connectorScanner.start(int(first), int(last)); err != nil {
+			return cfgErr("scanFailed", "局域网扫描未开始："+err.Error(), 409)
+		}
+		m.reply(w, 200, connectorScanner.view(), nil)
+		return nil
+	case r.RequestURI == "/api/platform/scan/cancel" && r.Method == "POST":
+		connectorScanner.stop()
+		m.reply(w, 200, connectorScanner.view(), nil)
+		return nil
 	}
 	var err error
 	switch {

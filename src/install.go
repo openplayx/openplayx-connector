@@ -40,12 +40,23 @@ func requireRootLinux() error {
 	return nil
 }
 
-func installFlags(name string) (*string, *string, *bool, []string) {
+type installOptions struct {
+	directory, prefix, enroll string
+	enableLAN, platform       bool
+}
+
+func installFlags(name string) installOptions {
 	flags, directory := newFlags(name)
 	prefix := flags.String("prefix", "/opt/openplayx-"+role, "installation prefix for binary releases")
 	enableLAN := flags.Bool("enable-lan", false, "Connector only: migrate an existing loopback configuration to LAN access")
+	platform := flags.Bool("platform", false, "Connector only: run the service in platform account mode (systemd drop-in)")
+	enroll := flags.String("enroll", "", "Connector only: import a pre-registration file from the account page (implies --platform)")
 	_ = flags.Parse(os.Args[2:])
-	return directory, prefix, enableLAN, flags.Args()
+	return installOptions{directory: *directory, prefix: *prefix, enroll: *enroll, enableLAN: *enableLAN, platform: *platform || *enroll != ""}
+}
+
+func platformDropIn() string {
+	return filepath.Join("/etc/systemd/system", serviceUnit()+".d", "platform.conf")
 }
 
 func unitText(prefix, directory string) string {
@@ -179,18 +190,21 @@ func waitActive() error {
 }
 
 func cmdInstall(_ []string) error {
-	directoryFlag, prefixFlag, enableLAN, _ := installFlags(os.Args[1])
-	if *enableLAN && role != roleConnector {
+	options := installFlags(os.Args[1])
+	if options.enableLAN && role != roleConnector {
 		return errors.New("--enable-lan is only supported by Connector")
+	}
+	if options.platform && role != roleConnector {
+		return errors.New("--platform and --enroll are only supported by Connector")
 	}
 	if err := requireRootLinux(); err != nil {
 		return err
 	}
-	directory, err := filepath.Abs(*directoryFlag)
+	directory, err := filepath.Abs(options.directory)
 	if err != nil {
 		return err
 	}
-	prefix, err := filepath.Abs(*prefixFlag)
+	prefix, err := filepath.Abs(options.prefix)
 	if err != nil {
 		return err
 	}
@@ -211,8 +225,13 @@ func cmdInstall(_ []string) error {
 	if err != nil {
 		return err
 	}
-	if *enableLAN {
+	if options.enableLAN {
 		if _, err = store.enableLAN(); err != nil {
+			return err
+		}
+	}
+	if options.enroll != "" {
+		if err = stageEnrollment(options.enroll, store); err != nil {
 			return err
 		}
 	}
@@ -264,6 +283,15 @@ func cmdInstall(_ []string) error {
 	if err = os.WriteFile(unitPath(), []byte(unitText(prefix, store.dir)), 0o644); err != nil {
 		return err
 	}
+	if options.platform {
+		// A drop-in survives later install/update runs without --platform.
+		if err = os.MkdirAll(filepath.Dir(platformDropIn()), 0o755); err != nil {
+			return err
+		}
+		if err = os.WriteFile(platformDropIn(), []byte("[Service]\nEnvironment=OPENPLAYX_CONNECTOR_PLATFORM=1\n"), 0o644); err != nil {
+			return err
+		}
+	}
 	if err = switchLink(current, release); err != nil {
 		return err
 	}
@@ -312,6 +340,9 @@ func cmdInstall(_ []string) error {
 		fmt.Println("Removed previous Python units:", strings.Join(legacy, ", "))
 	}
 	fmt.Printf("Installed %s %s as %s (config %s).\n", binaryName(), version, serviceUnit(), store.dir)
+	if options.enroll != "" {
+		fmt.Println("Pre-registration staged: the service claims its platform identity within seconds; check https://openplayx.com/account/connectors.")
+	}
 	if exists(store.file("bootstrap-token")) {
 		fmt.Println("No administrator password yet: read bootstrap-token in", store.dir, "to sign in (15 minute expiry).")
 	}
@@ -319,7 +350,8 @@ func cmdInstall(_ []string) error {
 }
 
 func cmdRollback(_ []string) error {
-	_, prefixFlag, _, _ := installFlags("rollback")
+	options := installFlags("rollback")
+	prefixFlag := &options.prefix
 	if err := requireRootLinux(); err != nil {
 		return err
 	}
@@ -353,7 +385,8 @@ func cmdRollback(_ []string) error {
 }
 
 func cmdUninstall(_ []string) error {
-	_, prefixFlag, _, _ := installFlags("uninstall")
+	options := installFlags("uninstall")
+	prefixFlag := &options.prefix
 	if err := requireRootLinux(); err != nil {
 		return err
 	}

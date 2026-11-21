@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-//go:embed web/index.html web/app.js web/style.css web/platform.html web/platform.js web/ui/vendor/basecoat/basecoat.cdn.min.css web/ui/opx-theme.css web/ui/opx-theme.js
+//go:embed web/index.html web/app.js web/style.css web/platform.html web/platform.js web/ui/vendor/basecoat/basecoat.cdn.min.css web/ui/opx-theme.css web/ui/opx-theme.js web/ui/opx-i18n.js
 var webAssets embed.FS
 
 var staticFiles = map[string][2]string{
@@ -30,6 +30,7 @@ var staticFiles = map[string][2]string{
 	"/ui/basecoat.css":  {"web/ui/vendor/basecoat/basecoat.cdn.min.css", "text/css; charset=utf-8"},
 	"/ui/opx-theme.css": {"web/ui/opx-theme.css", "text/css; charset=utf-8"},
 	"/ui/opx-theme.js":  {"web/ui/opx-theme.js", "text/javascript; charset=utf-8"},
+	"/ui/opx-i18n.js":   {"web/ui/opx-i18n.js", "text/javascript; charset=utf-8"},
 }
 
 const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
@@ -175,6 +176,9 @@ func (m *ManagerServer) requestOrigins(peer, local, authority string) (map[strin
 
 func (m *ManagerServer) reply(w http.ResponseWriter, status int, value any, extra map[string]string) {
 	data, _ := json.Marshal(value)
+	if locale, ok := w.(*localeWriter); ok && locale.english {
+		data = localizeJSON(data)
+	}
 	m.send(w, status, data, "application/json; charset=utf-8", extra)
 }
 
@@ -269,6 +273,7 @@ func (m *ManagerServer) authenticate(r *http.Request, write bool) (string, sessi
 }
 
 func (m *ManagerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w = &localeWriter{ResponseWriter: w, english: prefersEnglish(r)}
 	// URLs, login fields and secrets never enter logs.
 	defer func() {
 		if recover() != nil {
@@ -304,6 +309,10 @@ func (m *ManagerServer) handle(w http.ResponseWriter, r *http.Request, write boo
 		return err
 	}
 	path := r.RequestURI
+	if path == "/i18n.js" && !write {
+		m.send(w, 200, i18nScript, "text/javascript; charset=utf-8", nil)
+		return nil
+	}
 	if asset, static := staticFiles[path]; !write && static {
 		if m.platform != nil && path == "/" {
 			asset[0] = "web/platform.html"
