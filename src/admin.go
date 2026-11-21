@@ -13,6 +13,8 @@ import (
 	"golang.org/x/crypto/scrypt"
 )
 
+const adminSessionLifetime = time.Hour
+
 type session struct {
 	csrf      string
 	expiresAt float64
@@ -123,7 +125,7 @@ func (a *Admin) authenticate(passwordValue any, peer string) (string, string, er
 		}
 	}
 	token, csrf := tokenURLSafe(32), tokenURLSafe(32)
-	a.sessions[token] = session{csrf: csrf, expiresAt: now + 1800}
+	a.sessions[token] = session{csrf: csrf, expiresAt: now + adminSessionLifetime.Seconds()}
 	return token, csrf, nil
 }
 
@@ -136,7 +138,7 @@ func (a *Admin) session(token string) (session, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	value, ok := a.sessions[token]
-	if !ok || value.expiresAt < a.now() {
+	if !ok || value.expiresAt <= a.now() {
 		delete(a.sessions, token)
 		return session{}, cfgErr("authenticationRequired", "请先登录管理页面。", 401)
 	}

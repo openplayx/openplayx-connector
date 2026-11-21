@@ -414,6 +414,31 @@ func TestRouteRulesStayWithinFRPSPorts(t *testing.T) {
 	}
 }
 
+func TestAdminSessionExpiresAfterOneHour(t *testing.T) {
+	f := newFixture(t, roleConnector)
+	now := 1000.0
+	admin := NewAdmin(f.store.dir)
+	admin.now = func() float64 { return now }
+	if err := admin.bootstrap(false); err != nil {
+		t.Fatal(err)
+	}
+	credential, err := os.ReadFile(f.store.file("bootstrap-token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := admin.authenticate(strings.TrimSpace(string(credential)), "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now += 3599
+	if _, err := admin.session(token); err != nil {
+		t.Fatalf("session expired before one hour: %v", err)
+	}
+	now++
+	_, err = admin.session(token)
+	expectCode(t, err, "authenticationRequired")
+}
+
 func TestBootstrapExpiry(t *testing.T) {
 	f := newFixture(t, roleConnector)
 	now := 1000.0
@@ -614,6 +639,9 @@ func TestHTTPAuthCSRFOriginsExpirationAndRedaction(t *testing.T) {
 			t.Fatalf("password login %d", status)
 		}
 		server.admin.now = func() float64 { return wallClock() + 3600 }
+		if cookies := response.Cookies(); len(cookies) != 1 || cookies[0].MaxAge != 3600 {
+			t.Fatalf("login cookie must last one hour: %v", cookies)
+		}
 		anonymous.cookie = strings.Split(response.Header.Get("Set-Cookie"), ";")[0]
 		if status, _, _ = anonymous.request("GET", "/api/config", nil, nil); status != 401 {
 			t.Fatal("expired session accepted")

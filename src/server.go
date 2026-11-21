@@ -337,7 +337,7 @@ func (m *ManagerServer) handle(w http.ResponseWriter, r *http.Request, write boo
 		if err != nil {
 			return err
 		}
-		cookie := "opx_admin=" + token + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=1800"
+		cookie := "opx_admin=" + token + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=" + strconv.Itoa(int(adminSessionLifetime/time.Second))
 		if m.scheme == "https" {
 			cookie += "; Secure"
 		}
