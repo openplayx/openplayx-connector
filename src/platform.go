@@ -98,8 +98,9 @@ func (p *connectorPlatform) request(ctx context.Context, path, token string, bod
 	if err != nil || len(raw) > 1024*1024 {
 		return nil, response.StatusCode, errors.New("platform_invalid_response")
 	}
-	var result obj
-	if json.Unmarshal(raw, &result) != nil {
+	value, err := decodeJSON(raw)
+	result, ok := value.(obj)
+	if err != nil || !ok {
 		return nil, response.StatusCode, errors.New("platform_invalid_response")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {

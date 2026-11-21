@@ -93,8 +93,11 @@ func TestPlatformEnrollmentPersistenceIdempotentRegistrationAndSecretProjection(
 	if err := p.begin(context.Background(), "VM"); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.sync(context.Background()); err == nil {
-		t.Fatal("no available node must be reported")
+	if err := p.sync(context.Background()); err == nil || err.Error() != "selected_node_unavailable" {
+		t.Fatal("profile must validate before reporting unavailable node", err)
+	}
+	if p.profile == nil || p.state.HighestRevision != "1" {
+		t.Fatal("valid JSON profile was rejected before node selection")
 	}
 	if err := p.add("Jellyfin", "jellyfin", "127.0.0.1", 18096); err != nil {
 		t.Fatal(err)
@@ -177,5 +180,33 @@ func TestPlatformManagerUsesExistingAuthCSRFAndKeepsStatePrivate(t *testing.T) {
 	}
 	if status, _, _ := c.request("POST", "/api/platform/services", obj{"name": "SMB", "type": "smb", "host": "127.0.0.1", "port": 445}, nil); status != 200 {
 		t.Fatal("service rejected", status)
+	}
+}
+
+func TestPlatformAPIJSONNumbersReachNodeAndServicePlan(t *testing.T) {
+	profile, _, targets := platformFixture()
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(profile)
+	}))
+	defer mock.Close()
+	store, _ := NewStore(t.TempDir(), roleConnector)
+	p, _ := newConnectorPlatform(store, NewRuntime(roleConnector))
+	p.origin = mock.URL
+	decoded, _, err := p.request(context.Background(), "/connector/config", "test-machine", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value, ok := intValue(decoded["schemaVersion"]); !ok || value != 1 {
+		t.Fatalf("API integer lost its type: %T", decoded["schemaVersion"])
+	}
+	node := decoded["nodes"].([]any)[0].(obj)
+	plan, _, _, err := platformPlan(decoded, node, targets)
+	if err != nil {
+		t.Fatal("real HTTP JSON profile cannot produce a runtime plan", err)
+	}
+	cfg, proxies, err := frpClientConfig(plan.FRP)
+	if err != nil || cfg.ServerPort != 7000 || len(proxies) != 1 {
+		t.Fatal("JSON ports failed to reach frpc", err)
 	}
 }
