@@ -1,4 +1,9 @@
 'use strict';
+// Only actual interaction renews the session; background polling stays idle.
+let sessionActivity=true;
+for(const event of ['pointerdown','keydown','input','wheel'])document.addEventListener(event,()=>{sessionActivity=true},{passive:true});
+function activityHeaders(body){const active=sessionActivity||body!==undefined;sessionActivity=false;return active?{'X-OPX-Session-Activity':'1'}:{}}
+
 // Strings live in i18n/<locale>/ui.json (served as /i18n.js for ui/opx-i18n.js).
 const t = (key, vars) => opxI18n.t(key, vars);
 const $ = id => document.getElementById(id);
@@ -17,7 +22,7 @@ function note(key, vars, error = false) { message(' ', error); opxI18n.mark($('n
 async function api(path, body) {
   const response = await fetch('/api/' + path, {
     method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin',
-    headers: body === undefined ? {'Accept-Language': opxI18n.locale()} : {'Accept-Language': opxI18n.locale(), 'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+    headers: {...activityHeaders(body), ...(body === undefined ? {'Accept-Language': opxI18n.locale()} : {'Accept-Language': opxI18n.locale(), 'Content-Type': 'application/json', 'X-CSRF-Token': csrf})},
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await response.json();

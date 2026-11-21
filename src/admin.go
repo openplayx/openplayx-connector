@@ -134,13 +134,17 @@ func stringValue(value any) string {
 	return result
 }
 
-func (a *Admin) session(token string) (session, error) {
+func (a *Admin) session(token string, renew bool) (session, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	value, ok := a.sessions[token]
 	if !ok || value.expiresAt <= a.now() {
 		delete(a.sessions, token)
 		return session{}, cfgErr("authenticationRequired", "请先登录管理页面。", 401)
+	}
+	if renew {
+		value.expiresAt = a.now() + adminSessionLifetime.Seconds()
+		a.sessions[token] = value
 	}
 	return value, nil
 }

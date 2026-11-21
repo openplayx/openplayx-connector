@@ -431,11 +431,11 @@ func TestAdminSessionExpiresAfterOneHour(t *testing.T) {
 		t.Fatal(err)
 	}
 	now += 3599
-	if _, err := admin.session(token); err != nil {
+	if _, err := admin.session(token, false); err != nil {
 		t.Fatalf("session expired before one hour: %v", err)
 	}
 	now++
-	_, err = admin.session(token)
+	_, err = admin.session(token, false)
 	expectCode(t, err, "authenticationRequired")
 }
 
@@ -634,15 +634,27 @@ func TestHTTPAuthCSRFOriginsExpirationAndRedaction(t *testing.T) {
 		if status, _, _ = anonymous.request("POST", "/api/login", obj{"password": strings.TrimSpace(string(token))}, nil); status != 401 {
 			t.Fatal("bootstrap token survives password change")
 		}
+		clock := 10000.0
+		server.admin.now = func() float64 { return clock }
 		status, _, response = anonymous.request("POST", "/api/login", obj{"password": "new-test-password-with-32-characters"}, nil)
 		if status != 200 {
 			t.Fatalf("password login %d", status)
 		}
-		server.admin.now = func() float64 { return wallClock() + 3600 }
 		if cookies := response.Cookies(); len(cookies) != 1 || cookies[0].MaxAge != 3600 {
 			t.Fatalf("login cookie must last one hour: %v", cookies)
 		}
 		anonymous.cookie = strings.Split(response.Header.Get("Set-Cookie"), ";")[0]
+		clock += 3599
+		status, _, response = anonymous.request("GET", "/api/config", nil, map[string]string{"X-OPX-Session-Activity": "1"})
+		if status != 200 || len(response.Cookies()) != 1 || response.Cookies()[0].MaxAge != 3600 {
+			t.Fatalf("active request did not renew cookie: %d %v", status, response.Cookies())
+		}
+		clock += 3599
+		status, _, response = anonymous.request("GET", "/api/config", nil, nil)
+		if status != 200 || response.Header.Get("Set-Cookie") != "" {
+			t.Fatalf("background request renewed the session or expired early: %d", status)
+		}
+		clock++
 		if status, _, _ = anonymous.request("GET", "/api/config", nil, nil); status != 401 {
 			t.Fatal("expired session accepted")
 		}

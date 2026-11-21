@@ -1,11 +1,16 @@
 'use strict';
+// Only actual interaction renews the session; background polling stays idle.
+let sessionActivity=true;
+for(const event of ['pointerdown','keydown','input','wheel'])document.addEventListener(event,()=>{sessionActivity=true},{passive:true});
+function activityHeaders(body){const active=sessionActivity||body!==undefined;sessionActivity=false;return active?{'X-OPX-Session-Activity':'1'}:{}}
+
 // Strings live in i18n/<locale>/ui.json (served as /i18n.js for ui/opx-i18n.js).
 const t=(key,vars)=>opxI18n.t(key,vars);
 const $=id=>document.getElementById(id);let csrf='',busy=false,services=[];
 const say=(text,error=false)=>{const notice=$('notice');opxI18n.mark(notice,null);notice.textContent=text;notice.dataset.error=String(error);notice.setAttribute('data-variant',error?'destructive':'info');notice.hidden=!text};
 // note shows a localized notice that follows language switches.
 const note=(key,vars,error=false)=>{say(' ',error);opxI18n.mark($('notice'),key,vars)};
-async function api(path,body){const response=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',redirect:'error',headers:body===undefined?{'Accept-Language':opxI18n.locale()}:{'Accept-Language':opxI18n.locale(),'Content-Type':'application/json','X-CSRF-Token':csrf},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok){if(response.status===401){signedIn(false)}throw Error(data.message||t('platform.error'))}return data}
+async function api(path,body){const response=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',redirect:'error',headers:{...activityHeaders(body),...(body===undefined?{'Accept-Language':opxI18n.locale()}:{'Accept-Language':opxI18n.locale(),'Content-Type':'application/json','X-CSRF-Token':csrf})},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok){if(response.status===401){signedIn(false)}throw Error(data.message||t('platform.error'))}return data}
 async function action(fn){if(busy)return;busy=true;try{await fn()}catch(error){say(error.message,true)}finally{busy=false}}
 let lastPlatform=null,lastScan=null;
 async function refresh(){renderPlatform(await api('platform'))}
@@ -27,7 +32,7 @@ function scanRow(r){const item=document.createElement('div'),info=document.creat
  if(r.service){const use=document.createElement('button');use.type='button';use.className='btn';use.dataset.variant='ghost';use.dataset.size='sm';use.textContent=t('platform.use');use.disabled=$('service-name').disabled;use.onclick=()=>{resetService();$('service-name').value=(r.name||typeLabel[r.type]||r.type)+' '+r.host;$('service-type').value=r.service;$('service-host').value=r.host;$('service-port').value=r.port;openServiceEditor();note(r.service==='other_tcp'?'platform.filledOther':'platform.filled',null)};tools.append(use)}
  else{const note=document.createElement('span');note.className='opx-small';note.textContent=r.proto==='udp'?t('platform.noUdp'):(r.type==='ftp'||r.type==='ftps')?t('platform.noFtp'):r.type==='dlna'?t('platform.noDlna'):t('platform.notMappable');tools.append(note)}
  item.append(info,tools);return item}
-function showScan(state){lastScan=state;const running=state.running;$('scan').disabled=running;$('scan-cancel').hidden=!running;$('scan-start').disabled=running;$('scan-end').disabled=running;const bar=$('scan-progress');bar.hidden=!running;bar.max=Math.max(state.total||1,1);bar.value=state.done||0;
+function showScan(state){lastScan=state;const scope=(state.scope||[]).map(range=>{const row=document.createElement('li');row.textContent=range.cidr+' · '+range.start+' – '+range.end;return row});if(!scope.length){const row=document.createElement('li');row.textContent=t('platform.scanScopeLoopback');scope.push(row)}$('scan-scope').replaceChildren(...scope);const running=state.running;$('scan').disabled=running;$('scan-cancel').hidden=!running;$('scan-start').disabled=running;$('scan-end').disabled=running;const bar=$('scan-progress');bar.hidden=!running;bar.max=Math.max(state.total||1,1);bar.value=state.done||0;
  if(running){$('scan-status').textContent=(phaseLabel[state.phase]||state.phase)+(state.total?' · '+state.done+'/'+state.total:'')+(state.live?' · '+t('platform.liveHosts',{live:state.live,hosts:state.hosts}):'')}
  else if(state.phase){const took=state.startedAt&&state.finishedAt?t('platform.seconds',{n:Math.round((new Date(state.finishedAt)-new Date(state.startedAt))/1000)}):'';$('scan-status').textContent=({done:t('platform.scanDone'),canceled:t('platform.scanCanceled'),failed:t('platform.scanFailed',{error:state.error||''})}[state.phase]||'')+' · '+t('platform.scanSummary',{start:state.portStart,end:state.portEnd,live:state.live,hosts:state.hosts,open:state.results.length})+(took?' · '+t('platform.took',{time:took}):'')}
  const known=state.results.filter(r=>r.type!=='other'),other=state.results.filter(r=>r.type==='other');const list=$('scan-results');list.replaceChildren(...known.map(scanRow));list.hidden=!state.phase||running;if(!running&&state.phase&&!known.length){const empty=document.createElement('p');empty.textContent=t('platform.noKnown');list.append(empty)}

@@ -34,6 +34,7 @@ type scanResult struct {
 }
 
 type scanStatus struct {
+	Scope      []scanRange  `json:"scope"`
 	Running    bool         `json:"running"`
 	Phase      string       `json:"phase,omitempty"` // discover | ports | identify | done | canceled | failed
 	Done       int64        `json:"done"`
@@ -46,6 +47,41 @@ type scanStatus struct {
 	FinishedAt *time.Time   `json:"finishedAt,omitempty"`
 	Error      string       `json:"error,omitempty"`
 	Results    []scanResult `json:"results"`
+}
+
+type scanRange struct {
+	CIDR  string `json:"cidr"`
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
+// Describe the actual candidate addresses, including the global host limit.
+func scanScope(hosts []netip.Addr, networks []netip.Prefix) []scanRange {
+	ranges := []scanRange{}
+	seen := map[netip.Prefix]bool{}
+	for _, network := range networks {
+		prefix := network.Masked()
+		if seen[prefix] {
+			continue
+		}
+		seen[prefix] = true
+		var first, last netip.Addr
+		for _, host := range hosts {
+			if !prefix.Contains(host) {
+				continue
+			}
+			if !first.IsValid() || host.Less(first) {
+				first = host
+			}
+			if !last.IsValid() || last.Less(host) {
+				last = host
+			}
+		}
+		if first.IsValid() {
+			ranges = append(ranges, scanRange{CIDR: prefix.String(), Start: first.String(), End: last.String()})
+		}
+	}
+	return ranges
 }
 
 // discovery collects what broadcast protocols and liveness checks found.
@@ -173,6 +209,10 @@ func (s *lanScanner) view() scanStatus {
 	if status.Results == nil {
 		status.Results = []scanResult{}
 	}
+	if status.Scope == nil {
+		hosts, _ := s.hosts()
+		status.Scope = scanScope(hosts, localNetworks())
+	}
 	return status
 }
 
@@ -233,6 +273,7 @@ func (s *lanScanner) run(ctx context.Context, portStart, portEnd int) ([]scanRes
 	hosts, self := s.hosts()
 	s.mu.Lock()
 	s.status.Hosts = len(hosts)
+	s.status.Scope = scanScope(hosts, localNetworks())
 	s.mu.Unlock()
 	found := newDiscovery()
 	if s.discover != nil {

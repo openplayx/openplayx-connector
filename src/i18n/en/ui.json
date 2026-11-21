@@ -254,7 +254,10 @@
     "waiting": "Waiting",
     "running": "Running",
     "stopped": "Stopped",
-    "syncError": "Sync needs attention"
+    "syncError": "Sync needs attention",
+    "scanScopeTitle": "Scan scope",
+    "scanScopeHint": "Active port scans cover the private IPv4 networks attached to this machine, each limited to its local /24 (up to 254 addresses). Smaller subnets retain their bounds. Includes 127.0.0.1 and skips network/broadcast addresses, with up to 1,024 candidate addresses total. Services announced by LAN broadcasts may also appear.",
+    "scanScopeLoopback": "Only 127.0.0.1; no eligible private IPv4 network detected."
   },
   "relay": {
     "addRange": "Add port range",

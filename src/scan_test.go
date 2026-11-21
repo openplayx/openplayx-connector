@@ -328,3 +328,24 @@ func TestLANHostsAreLocal(t *testing.T) {
 		}
 	}
 }
+
+func TestScanScopeShowsActualCandidateRanges(t *testing.T) {
+	hosts := []netip.Addr{}
+	for _, ip := range []string{"127.0.0.1", "192.168.1.1", "192.168.1.254", "10.0.2.1", "10.0.2.126"} {
+		hosts = append(hosts, netip.MustParseAddr(ip))
+	}
+	networks := []netip.Prefix{}
+	for _, cidr := range []string{"192.168.1.107/24", "192.168.1.108/24", "10.0.2.30/25", "172.16.0.1/24"} {
+		networks = append(networks, netip.MustParsePrefix(cidr))
+	}
+	scope := scanScope(hosts, networks)
+	if len(scope) != 2 || scope[0] != (scanRange{"192.168.1.0/24", "192.168.1.1", "192.168.1.254"}) || scope[1] != (scanRange{"10.0.2.0/25", "10.0.2.1", "10.0.2.126"}) {
+		t.Fatalf("unexpected scan ranges: %+v", scope)
+	}
+	// A network partially omitted by the global host limit must not promise
+	// addresses which are absent from the actual scan plan.
+	limited := scanScope(hosts[:2], networks)
+	if len(limited) != 1 || limited[0].End != "192.168.1.1" {
+		t.Fatalf("scope exceeds selected hosts: %+v", limited)
+	}
+}

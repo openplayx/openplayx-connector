@@ -262,14 +262,28 @@ func (m *ManagerServer) authenticate(r *http.Request, write bool) (string, sessi
 	if cookie, err := r.Cookie("opx_admin"); err == nil {
 		token = cookie.Value
 	}
-	current, err := m.admin.session(token)
+	current, err := m.admin.session(token, false)
 	if err != nil {
 		return "", session{}, err
 	}
 	if write && subtle.ConstantTimeCompare([]byte(current.csrf), []byte(r.Header.Get("X-CSRF-Token"))) != 1 {
 		return "", session{}, cfgErr("csrfDenied", "会话校验失败，请重新登录。", 403)
 	}
+	if write || r.Header.Get("X-OPX-Session-Activity") == "1" {
+		current, err = m.admin.session(token, true)
+		if err != nil {
+			return "", session{}, err
+		}
+	}
 	return token, current, nil
+}
+
+func (m *ManagerServer) adminCookie(token string) string {
+	cookie := "opx_admin=" + token + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=" + strconv.Itoa(int(adminSessionLifetime/time.Second))
+	if m.scheme == "https" {
+		cookie += "; Secure"
+	}
+	return cookie
 }
 
 func (m *ManagerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -337,16 +351,16 @@ func (m *ManagerServer) handle(w http.ResponseWriter, r *http.Request, write boo
 		if err != nil {
 			return err
 		}
-		cookie := "opx_admin=" + token + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=" + strconv.Itoa(int(adminSessionLifetime/time.Second))
-		if m.scheme == "https" {
-			cookie += "; Secure"
-		}
+		cookie := m.adminCookie(token)
 		m.reply(w, 200, obj{"csrfToken": csrf, "role": role, "needsPassword": m.needsPassword()}, map[string]string{"Set-Cookie": cookie})
 		return nil
 	}
 	token, current, err := m.authenticate(r, write)
 	if err != nil {
 		return err
+	}
+	if write || r.Header.Get("X-OPX-Session-Activity") == "1" {
+		w.Header().Set("Set-Cookie", m.adminCookie(token))
 	}
 	if strings.HasPrefix(path, "/api/platform") {
 		return m.platformRequest(w, r, data)
