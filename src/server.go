@@ -18,13 +18,14 @@ import (
 	"time"
 )
 
-//go:embed web/index.html web/app.js web/style.css
+//go:embed web/index.html web/app.js web/style.css web/platform.html web/platform.js
 var webAssets embed.FS
 
 var staticFiles = map[string][2]string{
-	"/":          {"web/index.html", "text/html; charset=utf-8"},
-	"/app.js":    {"web/app.js", "text/javascript; charset=utf-8"},
-	"/style.css": {"web/style.css", "text/css; charset=utf-8"},
+	"/":            {"web/index.html", "text/html; charset=utf-8"},
+	"/platform.js": {"web/platform.js", "text/javascript; charset=utf-8"},
+	"/app.js":      {"web/app.js", "text/javascript; charset=utf-8"},
+	"/style.css":   {"web/style.css", "text/css; charset=utf-8"},
 }
 
 const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
@@ -32,6 +33,7 @@ const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 
 // ManagerServer is the role-scoped configuration API. Connector permits
 // authenticated LAN access; Relay stays loopback unless HTTPS is configured.
 type ManagerServer struct {
+	platform   *connectorPlatform
 	store      *Store
 	management obj
 	admin      *Admin
@@ -299,6 +301,9 @@ func (m *ManagerServer) handle(w http.ResponseWriter, r *http.Request, write boo
 	}
 	path := r.RequestURI
 	if asset, static := staticFiles[path]; !write && static {
+		if m.platform != nil && path == "/" {
+			asset[0] = "web/platform.html"
+		}
 		content, err := webAssets.ReadFile(asset[0])
 		if err != nil {
 			return err
@@ -329,6 +334,12 @@ func (m *ManagerServer) handle(w http.ResponseWriter, r *http.Request, write boo
 	token, current, err := m.authenticate(r, write)
 	if err != nil {
 		return err
+	}
+	if strings.HasPrefix(path, "/api/platform") {
+		return m.platformRequest(w, r, data)
+	}
+	if m.platform != nil && write && path != "/api/password" && path != "/api/logout" {
+		return cfgErr("platformManaged", "平台模式请通过服务列表管理映射。", 409)
 	}
 	store := m.store
 	switch {

@@ -24,6 +24,35 @@ scripts/build.sh                       # dist/openplayx-connector-linux-{amd64,a
 (cd src && go test ./...)             # 单元测试 + 进程内端到端测试
 ```
 
+## 平台模式（API 管理的 Relay）
+
+当前平台节点（例如 `syd1`）使用此模式，不能使用旧的 `pair` 配置代替账号绑定。
+Linux/systemd 安装：
+
+```sh
+sudo ./openplayx-connector install
+sudo mkdir -p /etc/systemd/system/openplayx-connector.service.d
+printf '[Service]\nEnvironment=OPENPLAYX_CONNECTOR_PLATFORM=1\n' | sudo tee /etc/systemd/system/openplayx-connector.service.d/platform.conf >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl restart openplayx-connector
+```
+
+管理页 `http://<VM 局域网 IP>:9080`，本机首次凭据位于
+`/var/lib/openplayx-connector/bootstrap-token`，有效 15 分钟；首次登录后设置本机管理员密码。
+前台运行可用 `serve --platform --config-dir <目录>`。
+管理页生成配对码后，在 `https://api.openplayx.com/account/connector` 用手机相同账号确认。
+平台账号密码只提交给第一方 HTTPS API，不提交给 VM 管理页。
+绑定后机器凭据保存在私有 `platform.json`（0600），不返回到管理页面。
+选择固定 Relay 后不会自动切换节点；本地服务填写名称、类型、目标 IP 和端口（例如
+Jellyfin `127.0.0.1:18096`、SMB `127.0.0.1:445`）。只支持显式服务映射；目标限回环和私网地址。
+平台自动分配远程端口，服务注册幂等重试；本地目标地址不上传到 API。
+注册后在 `https://api.openplayx.com/account/permissions` 为手机明确勾选服务权限，手机刷新平台配置后可用。
+
+服务更新通过 frpc 动态重载，不重建 sing-box / frpc 连接；节点、凭据变化可能重建传输。
+平台刷新失败保留现有路由，明确身份撤销或已选节点移除时停止传输，不切换到其他节点。
+frpc 明确加载系统 CA 文件并验证节点主机名，不使用跳过 TLS 验证的默认行为。
+请仅在可信局域网或通过 SSH 隧道访问本机管理页，不做公网端口映射。
+
 ## 快速开始：安装
 
 从 Relay 管理员取得 `openplayx-relay pair` 生成的整个 **connector/** 目录（含 connector.json、私有 secrets.json 和受控 TLS 资产），不要接收 relay/ 或 app.json。

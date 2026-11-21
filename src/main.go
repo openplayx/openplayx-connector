@@ -141,6 +141,7 @@ func openStore(directory string) (*Store, func(), error) {
 
 func cmdServe(args []string) error {
 	flags, directory := newFlags("serve")
+	platformMode := flags.Bool("platform", os.Getenv("OPENPLAYX_CONNECTOR_PLATFORM") == "1", "Connector: use platform account enrollment and service registration")
 	_ = flags.Parse(args)
 	store, err := NewStore(*directory, role)
 	if err != nil {
@@ -206,7 +207,21 @@ func cmdServe(args []string) error {
 			fmt.Printf("Public TLS entry: %s (SNI of the applied proxy.serverName -> sing-box, other TLS -> manager)\n", address)
 		}
 	}
-	go startApplied(store, runtime)
+	var platformCancel context.CancelFunc
+	var platformDone chan struct{}
+	if *platformMode && role == roleConnector {
+		platform, err := newConnectorPlatform(store, runtime)
+		if err != nil {
+			return err
+		}
+		server.platform = platform
+		ctx, cancel := context.WithCancel(context.Background())
+		platformCancel = cancel
+		platformDone = make(chan struct{})
+		go func() { defer close(platformDone); platform.run(ctx) }()
+	} else {
+		go startApplied(store, runtime)
+	}
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -216,6 +231,10 @@ func cmdServe(args []string) error {
 		_ = server.Shutdown(ctx)
 	}()
 	err = server.Serve()
+	if platformCancel != nil {
+		platformCancel()
+		<-platformDone
+	}
 	_ = runtime.Stop()
 	return err
 }
