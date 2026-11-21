@@ -40,13 +40,13 @@ sudo systemctl restart openplayx-connector
 管理页 `http://<VM 局域网 IP>:9080`，本机首次凭据位于
 `/var/lib/openplayx-connector/bootstrap-token`，有效 15 分钟；首次登录后设置本机管理员密码。
 前台运行可用 `serve --platform --config-dir <目录>`。
-管理页生成配对码后，在 `https://api.openplayx.com/account/connector` 用手机相同账号确认。
+管理页生成配对码后，在 `https://openplayx.com/account/connector` 用手机相同账号确认。
 平台账号密码只提交给第一方 HTTPS API，不提交给 VM 管理页。
 绑定后机器凭据保存在私有 `platform.json`（0600），不返回到管理页面。
 选择固定 Relay 后不会自动切换节点；本地服务填写名称、类型、目标 IP 和端口（例如
 Jellyfin `127.0.0.1:18096`、SMB `127.0.0.1:445`）。只支持显式服务映射；目标限回环和私网地址。
 平台自动分配远程端口，服务注册幂等重试；本地目标地址不上传到 API。
-注册后在 `https://api.openplayx.com/account/permissions` 为手机明确勾选服务权限，手机刷新平台配置后可用。
+注册后在 `https://openplayx.com/account/permissions` 为手机明确勾选服务权限，手机刷新平台配置后可用。
 
 服务更新通过 frpc 动态重载，不重建 sing-box / frpc 连接；节点、凭据变化可能重建传输。
 平台刷新失败保留现有路由，明确身份撤销或已选节点移除时停止传输，不切换到其他节点。

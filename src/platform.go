@@ -190,7 +190,7 @@ func (p *connectorPlatform) view() obj {
 	result := obj{"bound": p.state.MachineToken != "", "connectorId": p.state.ConnectorID, "nodeId": p.state.NodeID, "nodes": nodes, "services": p.state.Targets, "error": p.fault, "components": p.runtime.Components(), "version": version}
 	if p.state.Proof != "" && time.Now().Before(p.state.ExpiresAt) {
 		result["userCode"] = p.state.Code
-		result["approvalURL"] = "https://api.openplayx.com/account/connector#code=" + p.state.Code
+		result["approvalURL"] = "https://openplayx.com/account/connector#code=" + p.state.Code
 	}
 	return result
 }
