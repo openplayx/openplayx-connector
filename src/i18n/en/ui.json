@@ -257,7 +257,9 @@
     "syncError": "Sync needs attention",
     "scanScopeTitle": "Scan scope",
     "scanScopeHint": "Active port scans cover the private IPv4 networks attached to this machine, each limited to its local /24 (up to 254 addresses). Smaller subnets retain their bounds. Includes 127.0.0.1 and skips network/broadcast addresses, with up to 1,024 candidate addresses total. Services announced by LAN broadcasts may also appear.",
-    "scanScopeLoopback": "Only 127.0.0.1; no eligible private IPv4 network detected."
+    "scanScopeLoopback": "Only 127.0.0.1; no eligible private IPv4 network detected.",
+    "addDiscoveryHint": "Find services faster in Discover services. Choose Use on a scan result to fill in its address and port.",
+    "goDiscovery": "Go to Discover services"
   },
   "relay": {
     "addRange": "Add port range",
