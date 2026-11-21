@@ -50,8 +50,12 @@ scripts/build.sh                       # dist/openplayx-connector-linux-{amd64,a
 For API-managed nodes such as `syd1`, install the systemd service, then set
 `OPENPLAYX_CONNECTOR_PLATFORM=1` in its systemd environment and restart it.
 Alternatively run `serve --platform --config-dir <directory>`.
-The LAN manager provides one-time enrollment, a fixed node selection, and explicit
-local service mappings. Approve enrollment with the same phone account at
+The LAN manager provides one-time enrollment and explicit local service mappings.
+The Relay node is chosen automatically: the Connector measures TCP connect time to
+every enabled node and uses the fastest reachable one. It stays on that node while it
+remains listed and reachable, and switches when the node is removed or fails three
+probes in a row (checked every 30 s). It reports its current node to the platform,
+and devices follow that node; there is no manual node selection. Approve enrollment with the same phone account at
 `https://openplayx.com/account/connector`; view synchronized services at
 `https://openplayx.com/account/`. All signed-in devices of the same account can access its enabled services without per-device grants.
 Account passwords stay on the first-party HTTPS origin; the Connector stores only

@@ -63,10 +63,17 @@ type connectorPlatform struct {
 	planHash string
 	fault    string
 	lastSync time.Time
+	// Node selection (node_select.go).
+	probe        func(context.Context, string, int) (time.Duration, error)
+	health       map[string]*nodeHealth
+	lastProbe    time.Time
+	reportedNode string
+	reportedAt   time.Time
+	reportFault  string
 }
 
 func newConnectorPlatform(s *Store, r *Runtime) (*connectorPlatform, error) {
-	p := &connectorPlatform{store: s, runtime: r, origin: "https://api.openplayx.com", client: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	p := &connectorPlatform{store: s, runtime: r, origin: "https://api.openplayx.com", client: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, probe: probeTCP}
 	p.state.Schema = 1
 	if exists(s.file("platform.json")) {
 		raw, err := readJSON(s.file("platform.json"))
@@ -369,19 +376,6 @@ func (p *connectorPlatform) synchronizeTargets(ctx context.Context) error {
 	}
 	return nil
 }
-func (p *connectorPlatform) selectNode(id string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	nodes, _ := p.profile["nodes"].([]any)
-	for _, item := range nodes {
-		node, _ := item.(map[string]any)
-		if node["nodeId"] == id {
-			p.state.NodeID = id
-			return p.save()
-		}
-	}
-	return errors.New("node_not_available")
-}
 func (p *connectorPlatform) view() obj {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -389,7 +383,7 @@ func (p *connectorPlatform) view() obj {
 	if p.profile != nil {
 		nodes, _ = p.profile["nodes"].([]any)
 	}
-	result := obj{"bound": p.state.MachineToken != "", "connectorId": p.state.ConnectorID, "nodeId": p.state.NodeID, "nodes": nodes, "services": p.state.Targets, "error": p.fault, "components": p.runtime.Components(), "version": version, "lastSync": p.lastSync}
+	result := obj{"bound": p.state.MachineToken != "", "connectorId": p.state.ConnectorID, "nodeId": p.state.NodeID, "nodes": nodes, "services": p.state.Targets, "error": p.fault, "components": p.runtime.Components(), "version": version, "lastSync": p.lastSync, "nodeHealth": p.nodeLatencies(), "reportedNodeId": p.reportedNode, "reportError": p.reportFault}
 	if p.state.Proof != "" && time.Now().Before(p.state.ExpiresAt) {
 		result["userCode"] = p.state.Code
 		result["approvalURL"] = "https://openplayx.com/account/connector#code=" + p.state.Code
@@ -461,21 +455,21 @@ func (p *connectorPlatform) sync(ctx context.Context) error {
 		}
 	}
 	p.lastSync = time.Now()
-	return p.applyProfile(profile)
+	if _, err = p.ensureNode(ctx, profile); err != nil {
+		return err
+	}
+	if err = p.applyProfile(profile); err != nil {
+		return err
+	}
+	p.reportNode(ctx)
+	return nil
 }
 
 // Caller holds p.mu. Service-only changes reuse the existing transport.
 func (p *connectorPlatform) applyProfile(profile obj) error {
 	p.profile = profile
 	nodes, _ := profile["nodes"].([]any)
-	// First enrollment can pick the first available node. Refresh never switches it.
-	if p.state.NodeID == "" && len(nodes) > 0 {
-		node, _ := nodes[0].(map[string]any)
-		p.state.NodeID = stringValue(node["nodeId"])
-		if err := p.save(); err != nil {
-			return err
-		}
-	}
+	// sync() chooses the node (ensureNode) before applying the profile.
 	var node obj
 	for _, item := range nodes {
 		n, _ := item.(map[string]any)
@@ -631,8 +625,6 @@ func (m *ManagerServer) platformRequest(w http.ResponseWriter, r *http.Request, 
 		err = p.change(stringValue(data["id"]), strings.TrimSpace(stringValue(data["name"])), stringValue(data["type"]), strings.TrimSpace(stringValue(data["host"])), int(number), disabled, false)
 	case r.Method == "POST" && r.RequestURI == "/api/platform/services/remove":
 		err = p.change(stringValue(data["id"]), "", "", "", 0, false, true)
-	case r.Method == "POST" && r.RequestURI == "/api/platform/node":
-		err = p.selectNode(stringValue(data["nodeId"]))
 	default:
 		return cfgErr("notFound", "接口不存在。", 404)
 	}
