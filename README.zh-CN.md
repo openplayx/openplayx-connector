@@ -19,6 +19,8 @@
 
 需要 Go 1.24+。Go 源码、模块文件和内嵌的 Web 页面（`src/web/`）都在 `src/` 下；除 `src/role.go` 外，Relay 与 Connector 两个仓库的 `src/` 内容相同。
 
+页面使用 `src/web/ui/` 中的 OpenPlayX 共享 UI 套件（Basecoat 加 OpenPlayX 主题）。它同步自 `openplayx/web` 仓库的 `ui/`，请在那里修改，不要直接改这里；副本被改动时 `go test` 会失败。
+
 ```bash
 scripts/build.sh                       # dist/openplayx-connector-linux-{amd64,arm64} + SHA256SUMS
 (cd src && go test ./...)             # 单元测试 + 进程内端到端测试

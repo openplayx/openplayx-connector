@@ -626,7 +626,7 @@ func TestStaticAssetsAndHeaders(t *testing.T) {
 	server := startServer(t, f.store, f.saved["management"].(obj), "127.0.0.1:0")
 	hostport := "127.0.0.1:" + strconv.Itoa(server.port)
 	c := &client{t: t, base: "http://" + hostport, host: hostport}
-	for _, path := range []string{"/", "/app.js", "/style.css"} {
+	for _, path := range []string{"/", "/app.js", "/style.css", "/ui/basecoat.css", "/ui/opx-theme.css", "/ui/opx-theme.js"} {
 		status, _, response := c.request("GET", path, nil, nil)
 		if status != 200 || response.Header.Get("Content-Security-Policy") == "" || response.Header.Get("Cache-Control") != "no-store" {
 			t.Fatalf("%s: %d %v", path, status, response.Header)

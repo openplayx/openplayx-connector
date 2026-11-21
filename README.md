@@ -36,6 +36,10 @@ Requires Go 1.24+. The Go sources, module files and the embedded web page
 (`src/web/`) are under `src/`; apart from `src/role.go`, `src/` is identical in
 the Relay and Connector repositories.
 
+The pages use the shared OpenPlayX UI kit in `src/web/ui/` (Basecoat plus the
+OpenPlayX theme). It is a synced copy of `ui/` in the `openplayx/web`
+repository; edit it there, not here. `go test` fails if the copy is modified.
+
 ```bash
 scripts/build.sh                       # dist/openplayx-connector-linux-{amd64,arm64} + SHA256SUMS
 (cd src && go test ./...)             # unit tests + in-process end-to-end tests

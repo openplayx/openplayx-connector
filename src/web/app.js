@@ -3,7 +3,11 @@ const $ = id => document.getElementById(id);
 let csrf = '', role = '', config = null, tlsFiles = [], busy = false;
 const controls = new Map(), secretControls = new Map();
 
-function message(text, error = false) { $('notice').textContent = text; $('notice').dataset.error = String(error); }
+function message(text, error = false) {
+  const notice = $('notice');
+  notice.textContent = text; notice.dataset.error = String(error);
+  notice.dataset.variant = error ? 'destructive' : 'info'; notice.hidden = !text;
+}
 
 async function api(path, body) {
   const response = await fetch('/api/' + path, {
@@ -35,15 +39,29 @@ function set(object, path, value) {
   keys.reduce((value, key) => value[key], object)[last] = value;
 }
 
+// input renders one Basecoat field: <div class="field"><label>…</label><input></div>,
+// or <label class="opx-check"><input type="checkbox">…</label> for checkboxes.
 function input(label, value, type = 'text', options) {
-  const container = document.createElement('label');
-  container.textContent = label;
   const element = document.createElement(options ? 'select' : type === 'textarea' ? 'textarea' : 'input');
   if (options) {
     for (const [v, title] of options) { const option = document.createElement('option'); option.value = v; option.textContent = title; element.append(option); }
   } else if (type !== 'textarea') element.type = type;
   if (type === 'checkbox') element.checked = !!value; else element.value = value ?? '';
   element.autocomplete = 'off';
+  if (type === 'checkbox') {
+    const container = document.createElement('label');
+    container.className = 'opx-check';
+    element.className = 'input';
+    container.append(element, document.createTextNode(label));
+    return {container, element};
+  }
+  const container = document.createElement('div');
+  container.className = 'field';
+  if (label) {
+    const title = document.createElement('label');
+    title.textContent = label;
+    container.append(title);
+  }
   container.append(element);
   return {container, element};
 }
@@ -80,13 +98,18 @@ function randomUUID() {
 
 function secretInput(placeholder, generate) {
   const wrap = document.createElement('div');
-  const {container, element} = input('', '', 'password');
+  wrap.className = 'conn-secret';
+  const element = document.createElement('input');
+  element.type = 'password';
+  element.className = 'input';
   element.autocomplete = 'new-password';
   element.placeholder = placeholder;
-  wrap.append(container);
+  wrap.append(element);
   if (generate) {
     const button = document.createElement('button');
     button.type = 'button';
+    button.className = 'btn';
+    button.dataset.variant = 'outline';
     button.textContent = '生成 UUID';
     button.addEventListener('click', () => { element.type = 'text'; element.value = randomUUID(); });
     wrap.append(button);
@@ -96,25 +119,31 @@ function secretInput(placeholder, generate) {
 
 // secretField is a fixed credential (Connector uuid, frp token).
 function secretField(parent, key, label, generate = false) {
+  // The clear checkbox sits outside .field: Basecoat renders checkbox labels inside .field as option cards.
   const wrap = document.createElement('div');
+  wrap.className = 'opx-stack conn-secret-field';
+  const fieldBox = document.createElement('div');
+  fieldBox.className = 'field';
   const title = document.createElement('label');
   title.textContent = label;
   const {wrap: inner, element} = secretInput('留空保留已有凭据', generate);
-  title.append(inner);
   const clearLabel = document.createElement('label');
+  clearLabel.className = 'opx-check';
   const clear = document.createElement('input');
   clear.type = 'checkbox';
+  clear.className = 'input';
   clearLabel.append(clear, document.createTextNode('明确清除此凭据'));
-  wrap.append(title, clearLabel);
+  fieldBox.append(title, inner);
+  wrap.append(fieldBox, clearLabel);
   $(parent).append(wrap);
   secretControls.set(key, {input: element, clear});
 }
 
 function row(parent, definitions, item, extra) {
   const container = document.createElement('div');
-  container.className = 'service';
+  container.className = 'conn-row';
   const fields = document.createElement('div');
-  fields.className = 'service-fields';
+  fields.className = 'opx-grid cols-4';
   for (const [key, label, type] of definitions) {
     const {container: l, element} = input(label, item[key], type);
     element.dataset.field = key;
@@ -125,6 +154,10 @@ function row(parent, definitions, item, extra) {
   if (extra) extra(container, fields);
   const remove = document.createElement('button');
   remove.type = 'button';
+  remove.className = 'btn';
+  remove.dataset.variant = 'ghost';
+  remove.dataset.size = 'sm';
+  remove.dataset.tone = 'danger';
   remove.textContent = '移除';
   remove.addEventListener('click', () => container.remove());
   container.append(remove);
@@ -143,11 +176,13 @@ const parseCSV = text => text.split(',').map(s => s.trim()).filter(Boolean);
 
 function userRow(user = {name: '', uuid: ''}) {
   const element = row('users', [['name', '身份名称', 'text']], user, (container, fields) => {
-    const label = document.createElement('label');
-    label.textContent = '认证 UUID';
+    const label = document.createElement('div');
+    label.className = 'field wide';
+    const title = document.createElement('label');
+    title.textContent = '认证 UUID';
     const {wrap, element: secret} = secretInput(user.uuid ? '留空保留已有 UUID' : '新 user 必须设置 UUID', true);
     secret.dataset.secret = 'uuid';
-    label.append(wrap);
+    label.append(title, wrap);
     fields.append(label);
   });
   element.dataset.ref = user.uuid || '';
@@ -194,7 +229,7 @@ function renderOverview() {
     summaryItem(transport, 'TLS 服务器名称', inbound.tls.server_name);
     summaryItem(transport, '接入身份', inbound.users.map(u => u.name).join('、') || '尚未配置');
     summaryItem(transport, '服务注册入口', `127.0.0.1:${config.frps.bindPort}`);
-    const summary = document.createElement('dl'); summary.className = 'summary-grid';
+    const summary = document.createElement('dl'); summary.className = 'opx-dl conn-summary';
     summaryItem(summary, '允许的映射端口', config.frps.allowPorts.map(p => p.single ?? `${p.start}–${p.end}`).join('、') || '无');
     for (const rule of config.singBox.route.rules) {
       summaryItem(summary, rule.auth_user.join('、'), [...(rule.port || []), ...(rule.port_range || [])].join('、') || '无允许端口');
@@ -207,10 +242,10 @@ function renderOverview() {
     summaryItem(transport, '家庭标识', config.frpc.user || '未设置');
     summaryItem(transport, '认证凭据', '已配置，修改时留空保留');
     if (!config.frpc.proxies.length) {
-      const empty = document.createElement('p'); empty.textContent = '尚未添加服务'; services.append(empty);
+      const empty = document.createElement('p'); empty.className = 'opx-small conn-summary'; empty.textContent = '尚未添加服务'; services.append(empty);
     }
     for (const proxy of config.frpc.proxies) {
-      const summary = document.createElement('dl'); summary.className = 'summary-grid service-summary';
+      const summary = document.createElement('dl'); summary.className = 'opx-dl conn-summary';
       summaryItem(summary, '服务名称', proxy.name);
       summaryItem(summary, '家庭地址', `${proxy.localIP}:${proxy.localPort}`);
       summaryItem(summary, '中继映射端口', proxy.remotePort);
@@ -344,6 +379,8 @@ async function status() {
   for (const [name, state] of Object.entries(s.components)) {
     const badge = document.createElement('span');
     badge.className = 'badge';
+    badge.dataset.dot = '';
+    badge.dataset.variant = /^(running|ready|ok|active|healthy|connected)$/i.test(String(state)) ? 'success' : /fail|error|stopped|exit/i.test(String(state)) ? 'destructive' : 'secondary';
     badge.textContent = name + ' · ' + state;
     $('components').append(badge);
   }

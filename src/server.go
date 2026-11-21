@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-//go:embed web/index.html web/app.js web/style.css web/platform.html web/platform.js
+//go:embed web/index.html web/app.js web/style.css web/platform.html web/platform.js web/ui/vendor/basecoat/basecoat.cdn.min.css web/ui/opx-theme.css web/ui/opx-theme.js
 var webAssets embed.FS
 
 var staticFiles = map[string][2]string{
@@ -26,9 +26,13 @@ var staticFiles = map[string][2]string{
 	"/platform.js": {"web/platform.js", "text/javascript; charset=utf-8"},
 	"/app.js":      {"web/app.js", "text/javascript; charset=utf-8"},
 	"/style.css":   {"web/style.css", "text/css; charset=utf-8"},
+	// Shared OpenPlayX UI kit (Basecoat + theme), synced from openplayx/web ui/.
+	"/ui/basecoat.css":  {"web/ui/vendor/basecoat/basecoat.cdn.min.css", "text/css; charset=utf-8"},
+	"/ui/opx-theme.css": {"web/ui/opx-theme.css", "text/css; charset=utf-8"},
+	"/ui/opx-theme.js":  {"web/ui/opx-theme.js", "text/javascript; charset=utf-8"},
 }
 
-const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
 // ManagerServer is the role-scoped configuration API. Connector permits
 // authenticated LAN access; Relay stays loopback unless HTTPS is configured.
