@@ -259,7 +259,17 @@
     "scanScopeHint": "Active port scans cover the private IPv4 networks attached to this machine, each limited to its local /24 (up to 254 addresses). Smaller subnets retain their bounds. Includes 127.0.0.1 and skips network/broadcast addresses, with up to 1,024 candidate addresses total. Services announced by LAN broadcasts may also appear.",
     "scanScopeLoopback": "Only 127.0.0.1; no eligible private IPv4 network detected.",
     "addDiscoveryHint": "Find services faster in Discover services. Choose Use on a scan result to fill in its address and port.",
-    "goDiscovery": "Go to Discover services"
+    "goDiscovery": "Go to Discover services",
+    "sourceSettings": "App source",
+    "sourceHint": "Appears automatically in the app. Media accounts are entered on each device.",
+    "sourceScheme": "Service protocol",
+    "sourcePath": "Base path",
+    "sourceTls": "TLS server name",
+    "sourceLocal": "Prefer LAN on same-account devices",
+    "sourceLocalPrivacy": "Opting in syncs this LAN entry address and certificate identity to your account devices. Forwarding targets and media passwords are not uploaded.",
+    "sourceLocalUrl": "LAN HTTPS URL",
+    "sourceLocalPin": "Trusted certificate SHA-256",
+    "sourceSmbRemote": "SMB currently uses remote access; secure LAN transport will be supported separately."
   },
   "relay": {
     "addRange": "Add port range",

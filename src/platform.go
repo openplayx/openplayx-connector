@@ -22,22 +22,24 @@ import (
 )
 
 type platformRegistration struct {
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Status string `json:"status"`
+	SourceDescriptor obj    `json:"sourceDescriptor,omitempty"`
+	Name             string `json:"name"`
+	Type             string `json:"type"`
+	Status           string `json:"status"`
 }
 type platformTarget struct {
-	Registration *platformRegistration `json:"registration,omitempty"`
-	ID           string                `json:"id"`
-	Disabled     bool                  `json:"disabled,omitempty"`
-	Deleted      bool                  `json:"deleted,omitempty"`
-	Synced       bool                  `json:"synced"`
-	Generation   uint64                `json:"generation,omitempty"`
-	ServiceID    string                `json:"serviceId,omitempty"`
-	Name         string                `json:"name"`
-	Type         string                `json:"type"`
-	Host         string                `json:"host"`
-	Port         int                   `json:"port"`
+	SourceDescriptor obj                   `json:"sourceDescriptor,omitempty"`
+	Registration     *platformRegistration `json:"registration,omitempty"`
+	ID               string                `json:"id"`
+	Disabled         bool                  `json:"disabled,omitempty"`
+	Deleted          bool                  `json:"deleted,omitempty"`
+	Synced           bool                  `json:"synced"`
+	Generation       uint64                `json:"generation,omitempty"`
+	ServiceID        string                `json:"serviceId,omitempty"`
+	Name             string                `json:"name"`
+	Type             string                `json:"type"`
+	Host             string                `json:"host"`
+	Port             int                   `json:"port"`
 }
 type platformState struct {
 	HighestRevision string           `json:"highestRevision,omitempty"`
@@ -184,7 +186,7 @@ func validPlatformTarget(name, kind, host string, port int) error {
 	}
 	return nil
 }
-func (p *connectorPlatform) add(name, kind, host string, port int) error {
+func (p *connectorPlatform) add(name, kind, host string, port int, descriptors ...obj) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.state.MachineToken == "" {
@@ -201,12 +203,20 @@ func (p *connectorPlatform) add(name, kind, host string, port int) error {
 			return errors.New("duplicate_service_name")
 		}
 	}
-	p.state.Targets = append(p.state.Targets, platformTarget{ID: tokenURLSafe(16), Name: name, Type: kind, Host: host, Port: port})
+	var descriptor obj
+	if len(descriptors) > 0 {
+		var err error
+		descriptor, err = validateSourceDescriptor(descriptors[0], kind)
+		if err != nil {
+			return err
+		}
+	}
+	p.state.Targets = append(p.state.Targets, platformTarget{ID: tokenURLSafe(16), Name: name, Type: kind, Host: host, Port: port, SourceDescriptor: descriptor})
 	return p.save()
 }
 
 // Local configuration is authoritative; deletion tombstones survive outages.
-func (p *connectorPlatform) change(id, name, kind, host string, port int, disabled, remove bool) error {
+func (p *connectorPlatform) change(id, name, kind, host string, port int, disabled, remove bool, descriptors ...obj) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.state.MachineToken == "" {
@@ -236,6 +246,15 @@ func (p *connectorPlatform) change(id, name, kind, host string, port int, disabl
 			if i != index && !other.Deleted && other.Name == name {
 				return errors.New("duplicate_service_name")
 			}
+		}
+		if len(descriptors) > 0 {
+			var err error
+			target.SourceDescriptor, err = validateSourceDescriptor(descriptors[0], kind)
+			if err != nil {
+				return err
+			}
+		} else if target.Type != kind {
+			target.SourceDescriptor = nil
 		}
 		target.Name = name
 		target.Type = kind
@@ -273,7 +292,7 @@ func (p *connectorPlatform) synchronizeTargets(ctx context.Context) error {
 			if target.Disabled || target.Deleted {
 				status = "disabled"
 			}
-			target.Registration = &platformRegistration{Name: target.Name, Type: target.Type, Status: status}
+			target.Registration = &platformRegistration{Name: target.Name, Type: target.Type, Status: status, SourceDescriptor: cloneDescriptor(target.SourceDescriptor)}
 			p.state.Targets[index] = target
 			if err := p.save(); err != nil {
 				return err
@@ -347,8 +366,8 @@ func (p *connectorPlatform) synchronizeTargets(ctx context.Context) error {
 			if target.Disabled {
 				status = "disabled"
 			}
-			if service["name"] != target.Name || service["type"] != target.Type || service["status"] != status {
-				result, _, err := p.requestAs(ctx, "PATCH", "/connector/services/"+url.PathEscape(target.ServiceID), p.state.MachineToken, obj{"name": target.Name, "type": target.Type, "status": status}, "", revision)
+			if service["name"] != target.Name || service["type"] != target.Type || service["status"] != status || !descriptorsEqual(service["sourceDescriptor"], target.SourceDescriptor) {
+				result, _, err := p.requestAs(ctx, "PATCH", "/connector/services/"+url.PathEscape(target.ServiceID), p.state.MachineToken, obj{"name": target.Name, "type": target.Type, "status": status, "sourceDescriptor": target.SourceDescriptor}, "", revision)
 				if err != nil {
 					return err
 				}
@@ -650,14 +669,14 @@ func (m *ManagerServer) platformRequest(w http.ResponseWriter, r *http.Request, 
 		if !ok {
 			return errors.New("invalid_port")
 		}
-		err = p.add(strings.TrimSpace(stringValue(data["name"])), stringValue(data["type"]), strings.TrimSpace(stringValue(data["host"])), int(number))
+		err = p.add(strings.TrimSpace(stringValue(data["name"])), stringValue(data["type"]), strings.TrimSpace(stringValue(data["host"])), int(number), descriptorFromRequest(data))
 	case r.Method == "POST" && r.RequestURI == "/api/platform/services/update":
 		number, ok := intValue(data["port"])
 		if !ok {
 			return errors.New("invalid_port")
 		}
 		disabled, _ := data["disabled"].(bool)
-		err = p.change(stringValue(data["id"]), strings.TrimSpace(stringValue(data["name"])), stringValue(data["type"]), strings.TrimSpace(stringValue(data["host"])), int(number), disabled, false)
+		err = p.change(stringValue(data["id"]), strings.TrimSpace(stringValue(data["name"])), stringValue(data["type"]), strings.TrimSpace(stringValue(data["host"])), int(number), disabled, false, descriptorFromRequest(data))
 	case r.Method == "POST" && r.RequestURI == "/api/platform/services/remove":
 		err = p.change(stringValue(data["id"]), "", "", "", 0, false, true)
 	default:

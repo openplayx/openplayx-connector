@@ -259,7 +259,17 @@
     "scanScopeHint": "主动端口扫描覆盖本机连接的各私有 IPv4 网段，较大网段仅扫描本机 IP 所在的 /24（最多 254 个地址），更小的子网按实际范围扫描。包含本机 127.0.0.1，跳过网络地址和广播地址，最多扫描 1,024 个候选地址。通过局域网广播发现的服务也会显示。",
     "scanScopeLoopback": "仅 127.0.0.1；未检测到可扫描的私有 IPv4 网段。",
     "addDiscoveryHint": "也可以前往「发现服务」快速查找，在扫描结果中点击「使用」，即可自动填写服务地址和端口。",
-    "goDiscovery": "前往发现服务"
+    "goDiscovery": "前往发现服务",
+    "sourceSettings": "App 来源",
+    "sourceHint": "服务会自动出现在 App 来源页，媒体账号由各设备填写。",
+    "sourceScheme": "服务协议",
+    "sourcePath": "服务基础路径",
+    "sourceTls": "TLS 服务域名",
+    "sourceLocal": "让同账号设备优先通过局域网连接",
+    "sourceLocalPrivacy": "启用后，会向同账号设备同步此局域网入口地址和证书身份；不上传转发目标配置和媒体密码。",
+    "sourceLocalUrl": "局域网 HTTPS 地址",
+    "sourceLocalPin": "可信证书 SHA-256 指纹",
+    "sourceSmbRemote": "SMB 当前使用远程连接；安全局域网通道将单独提供。"
   },
   "relay": {
     "addRange": "添加端口范围",

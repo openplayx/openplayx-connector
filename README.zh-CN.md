@@ -155,3 +155,12 @@ sudo openplayx-connector uninstall        # 删除 systemd 服务，保留配置
 sing-box 以 GPL-3.0-or-later 授权（另有命名限制），本程序静态链接 sing-box，因此本仓库源码及分发的二进制整体按 **GPL-3.0-or-later** 提供，许可证全文见 [COPYING](COPYING)。frp 为 Apache-2.0。分发二进制时须同时提供对应源码。上游源码：[sing-box v1.12.12](https://github.com/SagerNet/sing-box/tree/v1.12.12)、[frp v0.65.0](https://github.com/fatedier/frp/tree/v0.65.0)。
 
 平台模式的服务新增、名称/类型/本地目标编辑、启停和删除都在本机管理页完成。配置仅存在私有 platform.json，由 Connector 用机器身份同步云端元数据；本地 IP、端口和服务密码不会上传。注册请求先冻结并持久化正文，响应丢失后可幂等重试；删除标记在断网后保留，先停止本地映射，再重试清理云端。云端用户中心不能修改服务。
+
+### App 来源自动发现
+
+Connector 发布的服务会自动出现在同账号 App 的来源页。用户在 App 首次使用时登录
+媒体服务并选择目录，无需再次指定 remote access。各设备保留自己的凭据和目录范围。
+服务编辑器可配置 HTTP/HTTPS、基础路径及 HTTPS 服务的真实 TLS 域名。
+明确启用“让同账号设备优先通过局域网连接”后，同步局域网 HTTPS 地址和可信证书
+SHA-256 指纹；入口路径须与服务基础路径一致。指纹应从受信服务配置取得。
+此元数据不包含实际转发目标配置或媒体密码。SMB 当前仍仅远程，安全本地通道单独实施。

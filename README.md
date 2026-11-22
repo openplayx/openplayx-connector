@@ -224,3 +224,15 @@ Upstream sources: [sing-box v1.12.12](https://github.com/SagerNet/sing-box/tree/
 [frp v0.65.0](https://github.com/fatedier/frp/tree/v0.65.0).
 
 Platform-mode services are managed on this Connector: add, edit name/type/local target, disable and delete in the LAN manager. Desired state is persisted privately and reconciled using the scoped machine identity; target addresses and ports never leave the machine. Frozen registration requests preserve idempotency after uncertain responses; deletion tombstones survive outages and stop local forwarding immediately. The cloud user page is read-only for service configuration.
+
+### App source discovery
+
+Services published by this Connector appear automatically on same-account App
+Sources pages. Media accounts and chosen folders remain on each App device.
+The service editor can publish HTTP/HTTPS protocol and base-path metadata.
+For HTTPS, set the real TLS server name. Optional LAN preference explicitly
+shares a LAN HTTPS URL and a trusted certificate SHA-256 fingerprint with
+same-account devices; the path must match the service base path. Obtain the
+fingerprint from a trusted server configuration, not an unknown LAN response.
+Forwarding targets and media passwords are not included in this metadata.
+SMB currently remains remote-only; its secure LAN transport is a separate phase.
